@@ -7,7 +7,7 @@ from functools import reduce
 import tqdm
 from utils.loss import KnowledgeDistillationLoss, BCEWithLogitsLossWithIgnoreIndex, \
     UnbiasedKnowledgeDistillationLoss, UnbiasedCrossEntropy, IcarlLoss
-from torch.cuda import amp
+from torch import amp
 from segmentation_module import make_model, TestAugmentation
 import tasks
 from torch.nn.parallel import DistributedDataParallel
@@ -175,7 +175,7 @@ class Trainer:
             l1h = l1h.to(device, dtype=torch.float)  # this are one_hot
             labels = labels.to(device, dtype=torch.long)
 
-            with amp.autocast():
+            with amp.autocast("cuda"):
                 if (self.lde_flag or self.lkd_flag or self.icarl_dist_flag or self.weakly) and self.model_old is not None:
                     with torch.no_grad():
                         outputs_old, features_old = self.model_old(images, interpolate=False)
@@ -355,7 +355,7 @@ class Trainer:
                 # if self.weakly:
                 #     l1h = x[2]
 
-                with amp.autocast():
+                with amp.autocast("cuda"):
                     outputs, features = model(images)
                 _, prediction = outputs.max(dim=1)
 
@@ -392,7 +392,7 @@ class Trainer:
                 labels = x[1].to(device, dtype=torch.long)
                 l1h = x[2].to(device, dtype=torch.bool)
 
-                with amp.autocast():
+                with amp.autocast("cuda"):
                     masks = classify(images)
 
                 _, prediction = masks.max(dim=1)
@@ -411,7 +411,7 @@ class Trainer:
     def load_step_ckpt(self, path):
         # generate model from path
         if osp.exists(path):
-            step_checkpoint = torch.load(path, map_location="cpu")
+            step_checkpoint = torch.load(path, map_location="cpu", weights_only=False)
             self.model.load_state_dict(step_checkpoint['model_state'], strict=False)  # False for incr. classifiers
             if self.opts.init_balanced:
                 # implement the balanced initialization (new cls has weight of background and bias = bias_bkg - log(N+1)
@@ -435,7 +435,7 @@ class Trainer:
         opts = self.opts
         assert osp.isfile(path), f"Error, ckpt not found in {path}"
 
-        checkpoint = torch.load(opts.ckpt, map_location="cpu")
+        checkpoint = torch.load(opts.ckpt, map_location="cpu", weights_only=False)
         self.model.load_state_dict(checkpoint["model_state"], strict=True)
         self.optimizer.load_state_dict(checkpoint["optimizer_state"])
         self.scheduler.load_state_dict(checkpoint["scheduler_state"])

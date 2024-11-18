@@ -163,3 +163,11 @@ cython_debug/
 
 # Dataset
 WILSON/data/
+
+# WILSON Models
+WILSON/pretrained/
+WILSON/checkpoints/
+
+# # WILSON Logs
+WILSON/logs/
+WILSON/wandb/

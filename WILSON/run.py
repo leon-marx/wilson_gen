@@ -33,7 +33,7 @@ def save_ckpt(path, trainer, epoch, best_score):
 
 def main(opts):
     distributed.init_process_group(backend='nccl', init_method='env://')
-    device_id, device = opts.local_rank, torch.device(opts.local_rank)
+    device_id, device = int(os.environ.get("LOCAL_RANK")), torch.device(int(os.environ.get("LOCAL_RANK")))
     rank, world_size = distributed.get_rank(), distributed.get_world_size()
     torch.cuda.set_device(device_id)
     opts.device_id = device_id
@@ -200,7 +200,7 @@ def main(opts):
                                   sampler=DistributedSampler(test_dst, num_replicas=world_size, rank=rank),
                                   num_workers=opts.num_workers)
 
-    val_score, = trainer.validate(loader=test_loader, metrics=val_metrics)
+    val_score = trainer.validate(loader=test_loader, metrics=val_metrics)
     logger.info(f"*** End of Test")
     logger.info(val_metrics.to_str(val_score))
     logger.add_table("Test/Class_IoU", val_score['Class IoU'])
