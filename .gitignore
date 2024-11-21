@@ -171,3 +171,5 @@ WILSON/checkpoints/
 # # WILSON Logs
 WILSON/logs/
 WILSON/wandb/
+
+WILSON_no_dist/

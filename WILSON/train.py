@@ -348,7 +348,7 @@ class Trainer:
         model.eval()
 
         with torch.no_grad():
-            for i, x in enumerate(loader):
+            for x in loader:
                 images = x[0].to(device, dtype=torch.float32)
                 labels = x[1].to(device, dtype=torch.long)
 
@@ -360,7 +360,7 @@ class Trainer:
                 _, prediction = outputs.max(dim=1)
 
                 labels = labels.cpu().numpy()
-                prediction = prediction.cpu().numpy()
+                prediction = prediction.cpu().numpy().astype(np.int32)
                 metrics.update(labels, prediction)
 
             # collect statistics from multiple processes
@@ -399,7 +399,7 @@ class Trainer:
 
                 labels[labels < self.old_classes] = 0
                 labels = labels.cpu().numpy()
-                prediction = prediction.cpu().numpy()
+                prediction = prediction.cpu().numpy().astype(np.int32)
                 metrics.update(labels, prediction)
 
             # collect statistics from multiple processes

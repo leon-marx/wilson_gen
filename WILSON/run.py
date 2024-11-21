@@ -227,4 +227,29 @@ if __name__ == '__main__':
     opts = argparser.modify_command_options(opts)
 
     os.makedirs("checkpoints/step", exist_ok=True)
+
+    # Debugging Parameters
+    # os.chdir("WILSON")
+    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    # os.environ["TORCH_USE_CUDA_DSA"] = "1"
+    # os.environ["RANK"] = "0"
+    # os.environ["LOCAL_RANK"] = "0"
+    # os.environ["WORLD_SIZE"] = "1"
+    # os.environ["MASTER_ADDR"] = "localhost"
+    # import get_free_port
+    # start_port = random.choice(list(range(1994, 2994)))
+    # port = get_free_port.next_free_port(port=start_port)
+    # os.environ["MASTER_PORT"] = str(port)
+    # opts.num_workers = 12
+    # opts.name = "Base"
+    # opts.step = 0
+    # opts.lr = 0.01
+    # opts.bce = True
+    # opts.dataset = "voc"
+    # opts.task = "10-10"
+    # opts.batch_size = 24
+    # opts.epochs = 30
+    # opts.val_interval = 1
+    # End Debugging Parameters
+
     main(opts)

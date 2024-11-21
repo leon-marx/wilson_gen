@@ -113,7 +113,7 @@ class StreamSegMetrics(_StreamMetrics):
                 "Agg": [mean_iu, acc_cls, precision_cls],
                 "Confusion Matrix": self.confusion_matrix_to_fig()
             }
-        
+
     def reset(self):
         self.confusion_matrix = np.zeros((self.n_classes, self.n_classes))
         self.total_samples = 0
