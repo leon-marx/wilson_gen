@@ -167,9 +167,18 @@ WILSON/data/
 # WILSON Models
 WILSON/pretrained/
 WILSON/checkpoints/
+WILSON/checkpoints_backup/
 
-# # WILSON Logs
+# WILSON Logs
 WILSON/logs/
+WILSON/logs_backup/
 WILSON/wandb/
 
+# Debugging
 WILSON_no_dist/
+
+# SD Models
+generative_models/checkpoints/
+
+# SD Data
+generative_models/gen_imgs/
