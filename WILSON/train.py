@@ -357,6 +357,7 @@ class Trainer:
 
                 with amp.autocast("cuda"):
                     outputs, features = model(images)
+                    # _, prediction = outputs.max(dim=1)
                 _, prediction = outputs.max(dim=1)
 
                 labels = labels.cpu().numpy()

@@ -52,7 +52,8 @@ prompts = [
 print("Generating images...")
 time.sleep(1)
 for prompt in tqdm(prompts, leave=True):
-    for i in tqdm(range(100), leave=False):
+    prompt_name = prompt.replace("/", "_").replace("dining table", "dining_table").replace("potted plant", "potted_plant")
+    for i in tqdm(range(150), leave=False):
         image = base(
             prompt=prompt,
             num_inference_steps=n_steps,
@@ -67,4 +68,4 @@ for prompt in tqdm(prompts, leave=True):
             image=image,
         ).images[0]
 
-        image.save(f"gen_imgs/{prompt.replace('/', '_')}_{i}.jpg")
+        image.save(f"gen_imgs/{prompt_name}_{i+100}.jpg")

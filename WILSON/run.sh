@@ -6,7 +6,7 @@ echo ${port}
 alias exp='torchrun --nproc_per_node=1 --master_port ${port} run.py --num_workers 4 --sample_num 8'
 shopt -s expand_aliases
 
-overlap=0  # set to 1 to activate
+overlap=1  # set to 1 to activate
 dataset=voc
 epochs=40
 task=10-10

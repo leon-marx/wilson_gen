@@ -163,22 +163,27 @@ cython_debug/
 
 # Dataset
 WILSON/data/
+WILSON/replay_data/
 
 # WILSON Models
 WILSON/pretrained/
 WILSON/checkpoints/
-WILSON/checkpoints_backup/
 
 # WILSON Logs
 WILSON/logs/
-WILSON/logs_backup/
 WILSON/wandb/
-
-# Debugging
-WILSON_no_dist/
 
 # SD Models
 generative_models/checkpoints/
+stablediffusion/pretrained/
 
 # SD Data
 generative_models/gen_imgs/
+stablediffusion/gen_imgs/
+
+# Work in Progress
+WILSON/checkpoints_backup/
+WILSON/logs_backup/
+generative_models/gen_imgs_backup/
+stablediffusion/gen_imgs_backup/
+WILSON_WIP/

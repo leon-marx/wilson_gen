@@ -364,7 +364,7 @@ def main(opt):
                         x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                         img = Image.fromarray(x_sample.astype(np.uint8))
                         img = put_watermark(img, wm_encoder)
-                        img.save(os.path.join(sample_path, f"{c_strings[i]}/{base_count:05}.png"))
+                        img.save(os.path.join(sample_path, f"{c_strings[i]}_{base_count:05}.png"))
                         base_count += 1
                         sample_count += 1
 
