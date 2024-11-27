@@ -2,7 +2,7 @@ import os
 import torch.utils.data as data
 from .dataset import IncrementalSegmentationDataset
 import numpy as np
-
+import pickle
 from PIL import Image
 
 classes = {
@@ -134,19 +134,144 @@ class VOCSegmentation(data.Dataset):
     def __len__(self):
         return len(self.indices)
 
+class VOCGenSegmentation(data.Dataset):
+    def __init__(self,
+                 root,
+                 replay_root,
+                 replay_ratio,
+                 task,
+                 train=True,
+                 transform=None,
+                 indices=None,
+                 saliency=False,
+                 pseudo=None,):
+        assert train, "Replay only works for training"
+        self.root = os.path.expanduser(root)
+        self.year = "2012"
+
+        self.transform = transform
+
+        self.image_set = 'train'
+        base_dir = "voc"
+        voc_root = os.path.join(self.root, base_dir)
+        splits_dir = os.path.join(voc_root, 'splits')
+
+        if not os.path.isdir(voc_root):
+            raise RuntimeError('Dataset not found or corrupted.' +
+                               ' Download it')
+
+        mask_dir = os.path.join(voc_root, 'SegmentationClassAug')
+        assert os.path.exists(mask_dir), "SegmentationClassAug not found"
+
+        split_f = os.path.join(splits_dir, 'train_aug.txt')
+
+        if not os.path.exists(split_f):
+            raise ValueError(
+                'Wrong image_set entered! Please use image_set="train" '
+                'or image_set="trainval" or image_set="val"')
+
+        # remove leading \n
+        with open(os.path.join(split_f), "r") as f:
+            file_names = [x[:-1].split(' ') for x in f.readlines()]
+
+        # REMOVE FIRST SLASH OTHERWISE THE JOIN WILL start from root
+        self.images = [(os.path.join(voc_root, x[0][1:]), os.path.join(voc_root, x[1][1:])) for x in file_names]
+
+        if pseudo is not None and train:
+            self.images = [(x[0], x[1].replace("SegmentationClassAug", f"PseudoLabels/{pseudo}/rw/")) for x in self.images]
+        self.img_lvl_labels = [one_hot for one_hot in np.load(os.path.join(voc_root, f"voc_1h_labels_{self.image_set}.npy"))]
+
+        self.indices = indices if indices is not None else np.arange(len(self.images))
+        self.indices = [idx for idx in self.indices]
+
+        # Replay
+        if task == "10-10":
+            old_classes = [classes[i] for i in range(1, 11, 1)]
+        elif task == "15-5":
+            old_classes = [classes[i] for i in range(1, 16, 1)]
+        self.num_voc = len(self.indices)
+        self.replay_images = []
+        self.replay_1h_lbls = []
+        for old_class in old_classes:
+            img_names = os.listdir(os.path.join(replay_root, task, old_class, "images"))
+            self.replay_images += [(os.path.join(replay_root, task, old_class, "images", img_name),
+                               os.path.join(replay_root, task, old_class, "pseudolabels", img_name)) for img_name in img_names]
+            with open(os.path.join(replay_root, task, old_class, "pseudolabels_1h.pkl"), "rb") as f:
+                pseudolabels_1h = pickle.load(f)
+            self.replay_1h_lbls += [pseudolabels_1h[img_name] for img_name in img_names]
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: (image, target) where target is the image segmentation.
+        """
+        if index < self.num_voc:
+            img = Image.open(self.images[self.indices[index]][0]).convert('RGB')
+            target = Image.open(self.images[self.indices[index]][1])
+            img_lvl_lbls = self.img_lvl_labels[self.indices[index]]
+
+            if self.transform is not None:
+                img, target = self.transform(img, target)
+            return img, target, img_lvl_lbls
+        else:
+            img = Image.open(self.replay_images[index - self.num_voc][0]).convert('RGB')
+            target = Image.open(self.replay_images[index - self.num_voc][1])
+            img_lvl_lbls = self.replay_1h_lbls[index - self.num_voc]
+
+            if self.transform is not None:
+                img, target = self.transform(img, target)
+            return img, target, img_lvl_lbls
+    def __len__(self):
+        return len(self.indices) + len(self.replay_images)
 
 class VOCSegmentationIncremental(IncrementalSegmentationDataset):
     def make_dataset(self, root, train, indices, saliency=False, pseudo=None):
         full_voc = VOCSegmentation(root, train, transform=None, indices=indices, saliency=saliency, pseudo=pseudo)
         return full_voc
 
+class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
+    def __init__(self,
+                 root,
+                 replay_root,
+                 replay_ratio,
+                 step_dict,
+                 task,
+                 train=True,
+                 transform=None,
+                 idxs_path=None,
+                 masking=True,
+                 overlap=True,
+                 masking_value=0,
+                 step=0,
+                 weakly=False,
+                 pseudo=None,):
+        self.replay_root = replay_root
+        self.replay_ratio = replay_ratio
+        self.task = task
+        super().__init__(root=root,
+            step_dict=step_dict,
+            train=train,
+            transform=transform,
+            idxs_path=idxs_path,
+            masking=masking,
+            overlap=overlap,
+            masking_value=masking_value,
+            step=step,
+            weakly=weakly,
+            pseudo=pseudo)
+
+    def make_dataset(self, root, train, indices, saliency=False, pseudo=None):
+        full_voc = VOCGenSegmentation(root=root, replay_root=self.replay_root, replay_ratio=self.replay_ratio, task=self.task, train=train, transform=None, indices=indices, saliency=saliency, pseudo=pseudo)
+        self.num_voc = full_voc.num_voc
+        return full_voc
 
 class VOCasCOCOSegmentationIncremental(IncrementalSegmentationDataset):
     def make_dataset(self, root, train, indices, saliency=False, pseudo=None):
         full_voc = VOCSegmentation(root, train, transform=None, indices=indices, as_coco=True,
                                    saliency=saliency, pseudo=pseudo)
         return full_voc
-
 
 class LabelTransform:
     def __init__(self, mapping):

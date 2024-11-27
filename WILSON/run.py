@@ -2,6 +2,7 @@ import argparser
 import os
 from utils.logger import WandBLogger
 from torch.utils.data.distributed import DistributedSampler
+from sampler import InterleaveSampler
 
 import numpy as np
 import random
@@ -65,9 +66,14 @@ def main(opts):
     # reset the seed, this revert changes in random seed
     random.seed(opts.random_seed)
 
-    train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
-                                   sampler=DistributedSampler(train_dst, num_replicas=world_size, rank=rank),
-                                   num_workers=opts.num_workers, drop_last=True)
+    if opts.replay:
+        train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
+                                    sampler=InterleaveSampler(train_dst, batch_size=opts.batch_size),
+                                    num_workers=opts.num_workers, drop_last=True)
+    else:
+        train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
+                                    sampler=DistributedSampler(train_dst, num_replicas=world_size, rank=rank),
+                                    num_workers=opts.num_workers, drop_last=True)
     val_loader = data.DataLoader(val_dst, batch_size=opts.batch_size if opts.crop_val else 1, shuffle=False,
                                  sampler=DistributedSampler(val_dst, num_replicas=world_size, rank=rank),
                                  num_workers=opts.num_workers)
