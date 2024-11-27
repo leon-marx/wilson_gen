@@ -174,16 +174,7 @@ WILSON/logs/
 WILSON/wandb/
 
 # SD Models
-generative_models/checkpoints/
 stablediffusion/pretrained/
 
 # SD Data
-generative_models/gen_imgs/
 stablediffusion/gen_imgs/
-
-# Work in Progress
-WILSON/checkpoints_backup/
-WILSON/logs_backup/
-generative_models/gen_imgs_backup/
-stablediffusion/gen_imgs_backup/
-WILSON_WIP/
