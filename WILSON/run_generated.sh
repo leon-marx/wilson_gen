@@ -10,7 +10,6 @@ overlap=1  # set to 1 to activate
 dataset=voc
 epochs=40
 task=10-10
-lr_init=0.01
 lr=0.001
 
 if [ ${overlap} -eq 0 ]; then

@@ -60,9 +60,9 @@ def generate_pseudo_labels(replay_path_w_task, opts):
     pseudo_labeler = get_pseudo_labeler(opts)
     class_folders = os.listdir(replay_path_w_task)
     for cf in tqdm(class_folders, leave=True):
-        # if cf not in list(class_to_idx.keys()):
-        #      print("Skipping class", cf)
-        #      continue
+        if cf not in list(class_to_idx.keys()):
+             print("Skipping class", cf)
+             continue
         pseudolabels_1h = dict()
         img_names = os.listdir(os.path.join(replay_path_w_task, cf, "images"))
         for img_name in tqdm(img_names, leave=False):
@@ -85,7 +85,7 @@ def generate_pseudo_labels(replay_path_w_task, opts):
 
 if __name__ == "__main__":
     import os
-    os.chdir("/home/thesis/marx/wilson_gen/WILSON_WIP")
+    os.chdir("/home/thesis/marx/wilson_gen/WILSON")
     class opts_obj():
         def __init__(self):
             pass

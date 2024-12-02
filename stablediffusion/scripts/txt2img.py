@@ -245,8 +245,6 @@ def main(opt):
         with open(opt.from_file, "r") as f:
             data = f.read().splitlines()
             data = [p for p in data for i in range(opt.repeat)]
-            for p in data:
-                os.makedirs(os.path.join(outpath, p.replace("tv/monitor", "tv_monitor").replace("potted plant", "potted_plant").replace("dining table", "dining_table").split(" ")[6]), exist_ok=True)
             data = list(chunk(data, batch_size))
 
     sample_path = outpath

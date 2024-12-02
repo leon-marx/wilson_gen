@@ -357,11 +357,11 @@ class Trainer:
 
                 with amp.autocast("cuda"):
                     outputs, features = model(images)
-                    # _, prediction = outputs.max(dim=1)
-                _, prediction = outputs.max(dim=1)
+                    _, prediction = outputs.max(dim=1)
+                # _, prediction = outputs.max(dim=1)
 
                 labels = labels.cpu().numpy()
-                prediction = prediction.cpu().numpy().astype(np.int32)
+                prediction = prediction.cpu().numpy().astype(np.int8)
                 metrics.update(labels, prediction)
 
             # collect statistics from multiple processes
@@ -395,12 +395,12 @@ class Trainer:
 
                 with amp.autocast("cuda"):
                     masks = classify(images)
-
-                _, prediction = masks.max(dim=1)
+                    _, prediction = masks.max(dim=1)
+                # _, prediction = masks.max(dim=1)
 
                 labels[labels < self.old_classes] = 0
                 labels = labels.cpu().numpy()
-                prediction = prediction.cpu().numpy().astype(np.int32)
+                prediction = prediction.cpu().numpy().astype(np.int8)
                 metrics.update(labels, prediction)
 
             # collect statistics from multiple processes

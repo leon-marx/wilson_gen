@@ -147,6 +147,8 @@ def main(opts):
             logger.info(val_metrics.to_str(val_score))
 
             # =====  Save Best Model  =====
+            # this is not the best, but the last model.
+            # val set == test set, saving best model not legal
             if rank == 0:  # save best model at the last iteration
                 score = val_score['Mean IoU']
                 # best model to build incremental steps
@@ -230,14 +232,11 @@ if __name__ == '__main__':
     parser = argparser.get_argparser()
 
     opts = parser.parse_args()
-    opts = argparser.modify_command_options(opts)
 
     os.makedirs("checkpoints/step", exist_ok=True)
 
-    # Debugging Parameters
+    #region Debugging Parameters
     # os.chdir("WILSON")
-    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-    # os.environ["TORCH_USE_CUDA_DSA"] = "1"
     # os.environ["RANK"] = "0"
     # os.environ["LOCAL_RANK"] = "0"
     # os.environ["WORLD_SIZE"] = "1"
@@ -246,16 +245,28 @@ if __name__ == '__main__':
     # start_port = random.choice(list(range(1994, 2994)))
     # port = get_free_port.next_free_port(port=start_port)
     # os.environ["MASTER_PORT"] = str(port)
-    # opts.num_workers = 12
-    # opts.name = "Base"
-    # opts.step = 0
-    # opts.lr = 0.01
-    # opts.bce = True
+    # opts.num_workers = 4
+    # opts.sample_num = 8
+    # opts.overlap = True
     # opts.dataset = "voc"
+    # opts.epochs = 40
     # opts.task = "10-10"
-    # opts.batch_size = 24
-    # opts.epochs = 30
-    # opts.val_interval = 1
-    # End Debugging Parameters
+    # opts.lr = 0.001
+    # opts.batch_size = 12
+    # opts.val_interval = 2
+    # opts.replay_root = "replay_data"
+    # opts.step_ckpt = "checkpoints/step/voc-10-10-ov/Base_0.pth"
+    # opts.name = "Incr_Gen"
+    # opts.step = 1
+    # opts.weakly = True
+    # opts.alpha = 0.5
+    # opts.loss_de = 1
+    # opts.lr_policy = "warmup"
+    # opts.affinity = True
+    # opts.replay = True
+    # opts.replay_ratio = 0.5
+    #endregion Debugging Parameters
+
+    opts = argparser.modify_command_options(opts)
 
     main(opts)

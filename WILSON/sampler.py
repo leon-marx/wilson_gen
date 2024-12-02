@@ -40,7 +40,7 @@ class InterleaveSampler(torch.utils.data.Sampler):
 # DEBUGGING
 # if __name__ == "__main__":
 #     import os
-#     os.chdir("/home/thesis/marx/wilson_gen/WILSON_WIP")
+#     os.chdir("/home/thesis/marx/wilson_gen/WILSON")
 #     from dataset import VOCGenSegmentationIncremental
 #     import tasks
 #     from dataset import transform
