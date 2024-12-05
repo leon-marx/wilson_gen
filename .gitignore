@@ -177,4 +177,5 @@ WILSON/wandb/
 stablediffusion/pretrained/
 
 # SD Data
-stablediffusion/gen_imgs/
+stablediffusion/gen_imgs*
+stablediffusion/hp_search/

@@ -337,7 +337,8 @@ def main(opt):
             all_samples = list()
             for n in trange(opt.n_iter, desc="Sampling"):
                 for prompts in tqdm(data, desc="data"):
-                    c_strings = [p.replace("tv/monitor", "tv_monitor").replace("potted plant", "potted_plant").replace("dining table", "dining_table").split(" ")[6] for p in prompts]
+                    if opt.from_file == "real_mod_typ_env_prompts.txt":
+                        c_strings = [p.replace("tv/monitor", "tv_monitor").replace("potted plant", "potted_plant").replace("dining table", "dining_table").split(" ")[6] for p in prompts]
                     uc = None
                     if opt.scale != 1.0:
                         uc = model.get_learned_conditioning(batch_size * [""])
@@ -362,7 +363,10 @@ def main(opt):
                         x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                         img = Image.fromarray(x_sample.astype(np.uint8))
                         img = put_watermark(img, wm_encoder)
-                        img.save(os.path.join(sample_path, f"{c_strings[i]}_{base_count:05}.png"))
+                        if opt.from_file == "real_mod_typ_env_prompts.txt":
+                            img.save(os.path.join(sample_path, f"{c_strings[i]}_{base_count:05}.png"))
+                        else:
+                            img.save(os.path.join(sample_path, f"{base_count:05}.png"))
                         base_count += 1
                         sample_count += 1
 
