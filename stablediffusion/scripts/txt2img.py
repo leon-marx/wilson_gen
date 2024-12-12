@@ -244,6 +244,12 @@ def main(opt):
         print(f"reading prompts from {opt.from_file}")
         with open(opt.from_file, "r") as f:
             data = f.read().splitlines()
+            if "voc" in opt.from_file:
+                class_idx = None
+                for p in data:
+                    if "aeroplane" in p:
+                        class_idx = p.split(" ").index("aeroplane")
+                        break
             data = [p for p in data for i in range(opt.repeat)]
             data = list(chunk(data, batch_size))
 
@@ -337,8 +343,8 @@ def main(opt):
             all_samples = list()
             for n in trange(opt.n_iter, desc="Sampling"):
                 for prompts in tqdm(data, desc="data"):
-                    if opt.from_file == "real_mod_typ_env_prompts.txt":
-                        c_strings = [p.replace("tv/monitor", "tv_monitor").replace("potted plant", "potted_plant").replace("dining table", "dining_table").split(" ")[6] for p in prompts]
+                    if "voc" in opt.from_file:
+                        c_strings = [p.replace("tv/monitor", "tv_monitor").replace("potted plant", "potted_plant").replace("dining table", "dining_table").split(" ")[class_idx] for p in prompts]
                     uc = None
                     if opt.scale != 1.0:
                         uc = model.get_learned_conditioning(batch_size * [""])
@@ -363,7 +369,7 @@ def main(opt):
                         x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                         img = Image.fromarray(x_sample.astype(np.uint8))
                         img = put_watermark(img, wm_encoder)
-                        if opt.from_file == "real_mod_typ_env_prompts.txt":
+                        if "voc" in opt.from_file:
                             img.save(os.path.join(sample_path, f"{c_strings[i]}_{base_count:05}.png"))
                         else:
                             img.save(os.path.join(sample_path, f"{base_count:05}.png"))

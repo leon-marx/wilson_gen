@@ -27,21 +27,22 @@ class_to_idx = {
     "cat": 8,
     "chair": 9,
     "cow": 10,
-    "dining_table": 11,
-    "dog": 12,
-    "horse": 13,
-    "motorbike": 14,
-    "person": 15,
-    "potted_plant": 16,
-    "sheep": 17,
-    "sofa": 18,
-    "train": 19,
-    "tv_monitor": 20
+    # "dining_table": 11,
+    # "dog": 12,
+    # "horse": 13,
+    # "motorbike": 14,
+    # "person": 15,
+    # "potted_plant": 16,
+    # "sheep": 17,
+    # "sofa": 18,
+    # "train": 19,
+    # "tv_monitor": 20
 }
 
 def get_pseudo_labeler(opts):
     model = make_model(opts, classes=tasks.get_per_task_classes(opts.dataset, opts.task, opts.step))
-    checkpoint = torch.load(opts.ckpt, map_location="cpu", weights_only=False)
+    print(f"Loading checkpoint from {opts.ckpt}")
+    checkpoint = torch.load(opts.ckpt, map_location="cpu")
     net_dict = model.state_dict()
     pretrained_dict = {k.replace("module.", ""): v for k, v in checkpoint["model_state"].items() if
         (k.replace("module.", "") in net_dict) and
@@ -84,6 +85,8 @@ def generate_pseudo_labels(replay_path_w_task, opts):
 
 
 if __name__ == "__main__":
+    REPLAY_ROOT = input("Enter the replay root: ")
+    assert os.path.exists(REPLAY_ROOT), "Replay root does not exist!"
     import os
     os.chdir("/home/thesis/marx/wilson_gen/WILSON")
     class opts_obj():
@@ -94,12 +97,18 @@ if __name__ == "__main__":
     opts.task = "10-10"
     opts.step = 0
     opts.test = True
-    opts.ckpt = "./checkpoints/step/voc-10-10-ov/Base_0.pth"
     opts.norm_act = "iabn_sync"
     opts.backbone = "resnet101"
     opts.output_stride = 16
     opts.no_pretrained = False
     opts.pooling = 32
-    replay_path = f"./replay_data/{opts.task}/"
+    # disjoint
+    opts.ckpt = "./checkpoints/step/voc-10-10/Base_0.pth"
+    replay_path = f"./{REPLAY_ROOT}/{opts.task}/"
     generate_pseudo_labels(replay_path, opts)
-    print("Successfully generated pseudolabels!")
+    print("Successfully generated pseudolabels for disjoint setting!")
+    # overlapped
+    opts.ckpt = "./checkpoints/step/voc-10-10-ov/Base_0.pth"
+    replay_path = f"./{REPLAY_ROOT}/{opts.task}-ov/"
+    generate_pseudo_labels(replay_path, opts)
+    print("Successfully generated pseudolabels for overlapped setting!")

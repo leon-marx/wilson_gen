@@ -3,7 +3,7 @@ import random
 
 class InterleaveSampler(torch.utils.data.Sampler):
     def __init__(self, dataset, batch_size):
-        super().__init__()
+        super().__init__(dataset)
         self.dataset = dataset
         self.batch_size = batch_size
         self.replay_ratio = self.dataset.replay_ratio

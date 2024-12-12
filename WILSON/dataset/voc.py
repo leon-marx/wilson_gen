@@ -140,6 +140,7 @@ class VOCGenSegmentation(data.Dataset):
                  replay_root,
                  replay_ratio,
                  task,
+                 overlap,
                  train=True,
                  transform=None,
                  indices=None,
@@ -185,6 +186,7 @@ class VOCGenSegmentation(data.Dataset):
         self.indices = [idx for idx in self.indices]
 
         # Replay
+        ov_string = "-ov" if overlap else ""
         if task == "10-10":
             old_classes = [classes[i] for i in range(1, 11, 1)]
         elif task == "15-5":
@@ -193,10 +195,10 @@ class VOCGenSegmentation(data.Dataset):
         self.replay_images = []
         self.replay_1h_lbls = []
         for old_class in old_classes:
-            img_names = os.listdir(os.path.join(replay_root, task, old_class, "images"))
-            self.replay_images += [(os.path.join(replay_root, task, old_class, "images", img_name),
-                               os.path.join(replay_root, task, old_class, "pseudolabels", img_name)) for img_name in img_names]
-            with open(os.path.join(replay_root, task, old_class, "pseudolabels_1h.pkl"), "rb") as f:
+            img_names = os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images"))
+            self.replay_images += [(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images", img_name),
+                               os.path.join(replay_root, f"{task}{ov_string}", old_class, "pseudolabels", img_name)) for img_name in img_names]
+            with open(os.path.join(replay_root, f"{task}{ov_string}", old_class, "pseudolabels_1h.pkl"), "rb") as f:
                 pseudolabels_1h = pickle.load(f)
             self.replay_1h_lbls += [pseudolabels_1h[img_name] for img_name in img_names]
 
@@ -250,6 +252,7 @@ class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
         self.replay_root = replay_root
         self.replay_ratio = replay_ratio
         self.task = task
+        self.overlap = overlap
         super().__init__(root=root,
             step_dict=step_dict,
             train=train,
@@ -263,7 +266,7 @@ class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
             pseudo=pseudo)
 
     def make_dataset(self, root, train, indices, saliency=False, pseudo=None):
-        full_voc = VOCGenSegmentation(root=root, replay_root=self.replay_root, replay_ratio=self.replay_ratio, task=self.task, train=train, transform=None, indices=indices, saliency=saliency, pseudo=pseudo)
+        full_voc = VOCGenSegmentation(root=root, replay_root=self.replay_root, replay_ratio=self.replay_ratio, task=self.task, overlap=self.overlap, train=train, transform=None, indices=indices, saliency=saliency, pseudo=pseudo)
         self.num_voc = full_voc.num_voc
         return full_voc
 
