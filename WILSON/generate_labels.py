@@ -51,7 +51,7 @@ def get_pseudo_labeler(opts):
     net_dict.update(pretrained_dict)
     model.load_state_dict(net_dict)
     del checkpoint
-    model.to("cuda")
+    model = model.to("cuda")
     for par in model.parameters():
             par.requires_grad = False
     model.eval()
@@ -75,7 +75,7 @@ def generate_pseudo_labels(replay_path_w_task, opts):
             pseudo_label_1h = np.zeros((21), dtype=np.uint8)
             for present_class in np.unique(pseudo_label):
                     pseudo_label_1h[int(present_class)] = 1
-            pseudo_label_1h[class_to_idx[cf]] = 1
+            # pseudo_label_1h[class_to_idx[cf]] = 1
             pseudolabels_1h[img_name] = pseudo_label_1h[1:] # Exclude background class
 
             pseudo_label = Image.fromarray(pseudo_label)
@@ -85,10 +85,10 @@ def generate_pseudo_labels(replay_path_w_task, opts):
 
 
 if __name__ == "__main__":
-    REPLAY_ROOT = input("Enter the replay root: ")
-    assert os.path.exists(REPLAY_ROOT), "Replay root does not exist!"
     import os
     os.chdir("/home/thesis/marx/wilson_gen/WILSON")
+    REPLAY_ROOT = input("Enter the replay root: ")
+    assert os.path.exists(REPLAY_ROOT), "Replay root does not exist!"
     class opts_obj():
         def __init__(self):
             pass

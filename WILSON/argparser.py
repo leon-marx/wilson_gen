@@ -193,8 +193,8 @@ def get_argparser():
                         help="whether to use AI-generated replay images")
     parser.add_argument("--replay_root", default="replay_data",
                         help="replay dataset root path")
-    parser.add_argument("--replay_ratio", default=0.5, type=float,
-                        help="fraction of replay images to use")
+    parser.add_argument("--replay_ratio", default=None, type=float,
+                        help="fraction of replay images to use, None for all")
 
 
 

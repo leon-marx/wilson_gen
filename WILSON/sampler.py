@@ -9,9 +9,17 @@ class InterleaveSampler(torch.utils.data.Sampler):
         self.replay_ratio = self.dataset.replay_ratio
         self.num_voc = self.dataset.num_voc
         self.num_gen = len(self.dataset) - self.num_voc
+        if self.replay_ratio is None:  # replay all
+            self.replay_ratio = self.num_gen / (self.num_gen + self.num_voc)
+            # print(f"{self.replay_ratio = }")
+            # print(f"{int(24 * self.replay_ratio) = }")
         self.gen_per_batch = int(self.batch_size * self.replay_ratio)
         self.voc_per_batch = int(self.batch_size - self.gen_per_batch)
         self.num_batches = self.num_voc // self.voc_per_batch
+        # print(f"{self.num_gen = }")
+        # print(f"{self.gen_per_batch = }")
+        # print(f"{self.num_voc = }")
+        # print(f"{self.voc_per_batch = }")
         assert self.num_gen // self.gen_per_batch >= self.num_voc // self.voc_per_batch, "Not enough gen data, create more!"
 
     def __iter__(self):
