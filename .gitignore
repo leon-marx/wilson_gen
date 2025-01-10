@@ -163,7 +163,7 @@ cython_debug/
 
 # Dataset
 WILSON/data/
-WILSON/replay_data/
+WILSON/replay_data*
 
 # WILSON Models
 WILSON/pretrained/
@@ -175,7 +175,11 @@ WILSON/wandb/
 
 # SD Models
 stablediffusion/pretrained/
+stablediffusion/checkpoints/
 
 # SD Data
 stablediffusion/gen_imgs*
+stablediffusion/gen_cap*
+stablediffusion/old_gen_caps/
 stablediffusion/hp_search/
+stablediffusion/outputs

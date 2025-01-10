@@ -244,7 +244,7 @@ def main(opt):
         print(f"reading prompts from {opt.from_file}")
         with open(opt.from_file, "r") as f:
             data = f.read().splitlines()
-            if "voc" in opt.from_file:
+            if "voc" in opt.from_file and not "voc_cap" in opt.from_file:
                 class_idx = None
                 for p in data:
                     if "aeroplane" in p:
@@ -343,7 +343,7 @@ def main(opt):
             all_samples = list()
             for n in trange(opt.n_iter, desc="Sampling"):
                 for prompts in tqdm(data, desc="data"):
-                    if "voc" in opt.from_file:
+                    if "voc" in opt.from_file and not "voc_cap" in opt.from_file:
                         c_strings = [p.replace("tv/monitor", "tv_monitor").replace("potted plant", "potted_plant").replace("dining table", "dining_table").split(" ")[class_idx] for p in prompts]
                     uc = None
                     if opt.scale != 1.0:
@@ -369,7 +369,7 @@ def main(opt):
                         x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                         img = Image.fromarray(x_sample.astype(np.uint8))
                         img = put_watermark(img, wm_encoder)
-                        if "voc" in opt.from_file:
+                        if "voc" in opt.from_file and not "voc_cap" in opt.from_file:
                             img.save(os.path.join(sample_path, f"{c_strings[i]}_{base_count:05}.png"))
                         else:
                             img.save(os.path.join(sample_path, f"{base_count:05}.png"))
