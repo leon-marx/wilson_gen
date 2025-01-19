@@ -19,7 +19,7 @@ if [ $1 = baseline ]; then
     ov=""
     dataset_pars="--dataset ${dataset} --task ${task} --batch_size 24 $ov --val_interval 2"
     pretr=${path}Base_0.pth
-    exp --name Incr_Gen_Base --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5
+    exp --name Incr_Gen_Base_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_size 1
   fi
 
   # Baseline overlap
@@ -29,7 +29,7 @@ if [ $1 = baseline ]; then
     echo "Overlap"
     dataset_pars="--dataset ${dataset} --task ${task} --batch_size 24 $ov --val_interval 2"
     pretr=${path}Base_0.pth
-    exp --name Incr_Gen_Base --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5
+    exp --name Incr_Gen_Base_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_size 1
   fi
 
 elif [ $1 = mrte ]; then
@@ -41,7 +41,7 @@ elif [ $1 = mrte ]; then
     ov=""
     dataset_pars="--dataset ${dataset} --task ${task} --batch_size 24 $ov --val_interval 2"
     pretr=${path}Base_0.pth
-    exp --name Incr_Gen_MRTE --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5
+    exp --name Incr_Gen_MRTE_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_size 1
   fi
 
   # MRTE overlap
@@ -51,7 +51,7 @@ elif [ $1 = mrte ]; then
     echo "Overlap"
     dataset_pars="--dataset ${dataset} --task ${task} --batch_size 24 $ov --val_interval 2"
     pretr=${path}Base_0.pth
-    exp --name Incr_Gen_MRTE --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5
+    exp --name Incr_Gen_MRTE_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_size 1
   fi
 
 elif [ $1 = captions ]; then
@@ -63,7 +63,7 @@ elif [ $1 = captions ]; then
     ov=""
     dataset_pars="--dataset ${dataset} --task ${task} --batch_size 24 $ov --val_interval 2"
     pretr=${path}Base_0.pth
-    exp --name Incr_Gen_Cap_Large --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root}
+    exp --name Incr_Gen_Cap_Large_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5 --replay_size 3
   fi
 
   # captions overlap
@@ -73,7 +73,7 @@ elif [ $1 = captions ]; then
     echo "Overlap"
     dataset_pars="--dataset ${dataset} --task ${task} --batch_size 24 $ov --val_interval 2"
     pretr=${path}Base_0.pth
-    exp --name Incr_Gen_Cap_Large --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root}
+    exp --name Incr_Gen_Cap_Large_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5 --replay_size 2
   fi
 
 else

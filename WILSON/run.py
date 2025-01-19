@@ -13,6 +13,7 @@ from torch import distributed
 from dataset import get_dataset
 from metrics import StreamSegMetrics
 from train import Trainer
+import matplotlib.pyplot as plt
 
 
 def save_ckpt(path, trainer, epoch, best_score):
@@ -164,6 +165,7 @@ def main(opts):
             logger.add_table("Val/Class_IoU", val_score['Class IoU'], cur_epoch)
             logger.add_table("Val/Acc_IoU", val_score['Class Acc'], cur_epoch)
             logger.add_figure("Val/Confusion_Matrix", val_score['Confusion Matrix'], cur_epoch)
+            plt.close(val_score["Confusion Matrix"])
 
             # keep the metric to print them at the end of training
             results["V-IoU"] = val_score['Class IoU']
@@ -175,6 +177,7 @@ def main(opts):
                 logger.add_scalar("Val_CAM/MeanPrec", val_score_cam['Agg'][2], cur_epoch)
                 logger.add_scalar("Val_CAM/MeanIoU", val_score_cam['Mean IoU'], cur_epoch)
                 logger.info(val_metrics.to_str(val_score_cam))
+                plt.close(val_score_cam["Confusion Matrix"])
                 logger.print("Done validation CAM")
 
         logger.commit()
@@ -199,6 +202,7 @@ def main(opts):
         logger.add_scalar("Val_CAM/MeanPrec", val_score_cam['Agg'][2], cur_epoch)
         logger.add_scalar("Val_CAM/MeanIoU", val_score_cam['Mean IoU'], cur_epoch)
         logger.info(val_metrics.to_str(val_score_cam))
+        plt.close(val_score_cam["Confusion Matrix"])
         logger.print("Done validation CAM")
 
     # xxx From here starts the test code
@@ -214,6 +218,7 @@ def main(opts):
     logger.add_table("Test/Class_IoU", val_score['Class IoU'])
     logger.add_table("Test/Class_Acc", val_score['Class Acc'])
     logger.add_figure("Test/Confusion_Matrix", val_score['Confusion Matrix'])
+    plt.close(val_score["Confusion Matrix"])
     results["T-IoU"] = val_score['Class IoU']
     results["T-Acc"] = val_score['Class Acc']
     # logger.add_results(results)
@@ -247,16 +252,16 @@ if __name__ == '__main__':
     # os.environ["MASTER_PORT"] = str(port)
     # opts.num_workers = 4
     # opts.sample_num = 8
-    # opts.overlap = True
+    # opts.overlap = False
     # opts.dataset = "voc"
     # opts.epochs = 40
     # opts.task = "10-10"
     # opts.lr = 0.001
-    # opts.batch_size = 12
+    # opts.batch_size = 24
     # opts.val_interval = 2
-    # opts.replay_root = "replay_data"
-    # opts.step_ckpt = "checkpoints/step/voc-10-10-ov/Base_0.pth"
-    # opts.name = "Incr_Gen"
+    # opts.replay_root = "replay_data_mrte"
+    # opts.step_ckpt = "checkpoints/step/voc-10-10/Base_0.pth"
+    # opts.name = "Incr_Gen_MRTE_RR"
     # opts.step = 1
     # opts.weakly = True
     # opts.alpha = 0.5
@@ -264,7 +269,9 @@ if __name__ == '__main__':
     # opts.lr_policy = "warmup"
     # opts.affinity = True
     # opts.replay = True
-    # opts.replay_ratio = 0.5
+    # # opts.replay_ratio = None
+    # opts.replay_size = 1
+    # opts.random_seed = 7
     #endregion Debugging Parameters
 
     opts = argparser.modify_command_options(opts)

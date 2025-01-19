@@ -172,6 +172,7 @@ class Trainer:
         for cur_step, (images, labels, l1h) in enumerate(train_loader):
 
             images = images.to(device, dtype=torch.float)
+            images = torch.clamp(images , -3, 3)
             l1h = l1h.to(device, dtype=torch.float)  # this are one_hot
             labels = labels.to(device, dtype=torch.long)
 
@@ -303,7 +304,11 @@ class Trainer:
 
             if tq is not None:
                 tq.update(1)
-                tq.set_postfix(loss='%.6f' % loss)
+                tq.set_postfix(loss='%.3f' % loss, l_reg='%.3f' % l_reg)
+                # if np.isnan(loss.item()):
+                #     raise ValueError("Cls Loss is NaN")
+                # if np.isnan(l_reg.item()):
+                #     raise ValueError("Reg Loss is NaN")
 
             if (cur_step + 1) % print_int == 0:
                 interval_loss = interval_loss / print_int
@@ -350,6 +355,7 @@ class Trainer:
         with torch.no_grad():
             for x in loader:
                 images = x[0].to(device, dtype=torch.float32)
+                images = torch.clamp(images, -3, 3)
                 labels = x[1].to(device, dtype=torch.long)
 
                 # if self.weakly:
@@ -390,6 +396,7 @@ class Trainer:
             for x in tqdm.tqdm(loader):
                 i = i+1
                 images = x[0].to(device, dtype=torch.float32)
+                images = torch.clamp(images, -3, 3)
                 labels = x[1].to(device, dtype=torch.long)
                 l1h = x[2].to(device, dtype=torch.bool)
 

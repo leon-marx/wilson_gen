@@ -139,6 +139,7 @@ class VOCGenSegmentation(data.Dataset):
                  root,
                  replay_root,
                  replay_ratio,
+                 replay_size,
                  task,
                  overlap,
                  train=True,
@@ -192,15 +193,24 @@ class VOCGenSegmentation(data.Dataset):
         elif task == "15-5":
             old_classes = [classes[i] for i in range(1, 16, 1)]
         self.num_voc = len(self.indices)
+        self.replay_root = replay_root
         self.replay_images = []
         self.replay_1h_lbls = []
+        with open(os.path.join(replay_root, f"{task}{ov_string}", "class_counts.pkl"), "rb") as f:
+                self.class_counts = pickle.load(f)
         for old_class in old_classes:
-            img_names = os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images"))
+            if replay_size is not None:
+                # print(F"{replay_size * self.class_counts[old_class] = }")
+                # print("Original number of data:", len(sorted(os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images")))))
+                img_names = sorted(os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images")))[:replay_size * self.class_counts[old_class]]
+                # print("New number of data:", len(img_names))
+            else:
+                img_names = sorted(os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images")))
             self.replay_images += [(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images", img_name),
-                               os.path.join(replay_root, f"{task}{ov_string}", old_class, "pseudolabels", img_name)) for img_name in img_names]
+                               os.path.join(replay_root, f"{task}{ov_string}", old_class, "pseudolabels", img_name[:-4] + ".png")) for img_name in img_names]
             with open(os.path.join(replay_root, f"{task}{ov_string}", old_class, "pseudolabels_1h.pkl"), "rb") as f:
                 pseudolabels_1h = pickle.load(f)
-            self.replay_1h_lbls += [pseudolabels_1h[img_name] for img_name in img_names]
+            self.replay_1h_lbls += [pseudolabels_1h[img_name[:-4] + ".png"] for img_name in img_names]
 
     def __getitem__(self, index):
         """
@@ -238,6 +248,7 @@ class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
                  root,
                  replay_root,
                  replay_ratio,
+                 replay_size,
                  step_dict,
                  task,
                  train=True,
@@ -251,6 +262,7 @@ class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
                  pseudo=None,):
         self.replay_root = replay_root
         self.replay_ratio = replay_ratio
+        self.replay_size = replay_size
         self.task = task
         self.overlap = overlap
         super().__init__(root=root,
@@ -266,7 +278,7 @@ class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
             pseudo=pseudo)
 
     def make_dataset(self, root, train, indices, saliency=False, pseudo=None):
-        full_voc = VOCGenSegmentation(root=root, replay_root=self.replay_root, replay_ratio=self.replay_ratio, task=self.task, overlap=self.overlap, train=train, transform=None, indices=indices, saliency=saliency, pseudo=pseudo)
+        full_voc = VOCGenSegmentation(root=root, replay_root=self.replay_root, replay_ratio=self.replay_ratio, replay_size=self.replay_size, task=self.task, overlap=self.overlap, train=train, transform=None, indices=indices, saliency=saliency, pseudo=pseudo)
         self.num_voc = full_voc.num_voc
         return full_voc
 

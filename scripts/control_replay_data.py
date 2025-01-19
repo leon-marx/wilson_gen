@@ -6,65 +6,47 @@ from PIL import Image
 from torchvision.transforms.functional import pil_to_tensor
 from tqdm import tqdm
 
-REPLAY_ROOT = "replay_data_cap"
+# REPLAY_ROOT = "replay_data_cap"
+REPLAY_ROOT = input("REPLAY_ROOT: ")
+OV = input("OV [ov/dj/all]]: ")
 TASK = "10-10"
+if OV == "ov":
+    ov_list = ["-ov"]
+elif OV == "dj":
+    ov_list = [""]
+else:
+    ov_list = ["", "-ov"]
 
-for OV in ["", "-ov"]:
+for OV in ov_list:
     print(f"Checking {REPLAY_ROOT}/{TASK}{OV}")
     img_shapes = []
+    psl_shapes = []
+    img_pxl_vals = []
+    psl_pxl_vals = []
     os.chdir(f"/home/thesis/marx/wilson_gen/WILSON/{REPLAY_ROOT}/{TASK}{OV}")
     corr_imgs = []
+    corr_psls = []
     for dir in tqdm(os.listdir(), leave=True):
-        for img in tqdm(os.listdir(f"{dir}/images"), leave=False):
-            imgg = Image.open(f"{dir}/images/{img}")
-            try:
-                img_shapes.append(pil_to_tensor(imgg).shape)
-            except OSError:
-                corr_imgs.append(f"{dir}_{img}")
-    if corr_imgs == []:
+        if os.path.isdir(dir):
+            for img in tqdm(os.listdir(f"{dir}/images"), leave=False):
+                try:
+                    imgg = Image.open(f"{dir}/images/{img}").convert("RGB")
+                    img_shapes.append(pil_to_tensor(imgg).shape)
+                    img_pxl_vals.append(imgg.load()[0, 0])
+                except OSError:
+                    corr_imgs.append(f"{dir}_{img}")
+                try:
+                    psl = Image.open(f"{dir}/pseudolabels/{img[:-4]}.png")
+                    psl_shapes.append(pil_to_tensor(psl).shape)
+                    psl_pxl_vals.append(psl.load()[0, 0])
+                except OSError:
+                    corr_psls.append(f"{dir}_{img}")
+    if corr_imgs == [] and corr_psls == []:
         print(f"All images can be loaded for {REPLAY_ROOT}/{TASK}{OV}")
     else:
         print("Found the following corrupted images")
         for c_img in corr_imgs:
             print(c_img)
-
-    # DIRECT FIX OF BROKEN IMAGES (DOES NOT WORK ATM)
-    # fix = input("Do you want to fix the broken images? (y/n)")
-    # if fix == "y":
-    #     GEN_DATA_ROOT = input("GEN_DATA_ROOT: ")
-    #     os.chdir(f"/home/thesis/marx/wilson_gen/")
-
-    #     classes = [
-    #         "aeroplane",
-    #         "bicycle",
-    #         "bird",
-    #         "boat",
-    #         "bottle",
-    #         "bus",
-    #         "car",
-    #         "cat",
-    #         "chair",
-    #         "cow",
-    #         # "dining_table",
-    #         # "dog",
-    #         # "horse",
-    #         # "motorbike",
-    #         # "person",
-    #         # "potted_plant",
-    #         # "sheep",
-    #         # "sofa",
-    #         # "train",
-    #         # "tv_monitor",
-    #     ]
-
-    #     for cl_name in classes:
-    #         files = [f for f in os.listdir(f"stablediffusion/{GEN_DATA_ROOT}") if cl_name in f and ".png" in f]
-    #         num_preexisting = len(os.listdir(f"WILSON/{REPLAY_ROOT}/{TASK + OV}/{cl_name}/images"))
-    #         for ind, img in enumerate(files):
-    #             if f"{cl_name}_{str(ind+len(files)).zfill(5)}.png" in corr_imgs:
-    #                 print(f"ORIGINAL: stablediffusion/{GEN_DATA_ROOT}/{img}")
-    #                 print(f"CORRUPTED: WILSON/{REPLAY_ROOT}/{TASK + OV}/{cl_name}/images/" + f"{str(ind+len(files)).zfill(5)}.png")
-    #             # shutil.copy(f"{GEN_DATA_ROOT}/{img}", f"../WILSON/{REPLAY_ROOT}/{TASK_AND_OV}/{cl_name}/images/{str(ind+num_preexisting).zfill(5)}.png")
-    # else:
-    #     print("Exiting")
-    #     exit()
+        print("Found the following corrupted pseudolabels")
+        for c_psl in corr_psls:
+            print(c_psl)

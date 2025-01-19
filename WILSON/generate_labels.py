@@ -73,7 +73,7 @@ def generate_pseudo_labels(replay_path_w_task, opts):
             pseudo_label = np.argmax(outputs, axis=0).astype(np.uint8)
 
             pseudo_label_1h = np.zeros((21), dtype=np.uint8)
-            for present_class in np.unique(pseudo_label):
+            for present_class in np.unique(pseudo_label):  # HERE we assign possible future pseudolabels too, not good!
                     pseudo_label_1h[int(present_class)] = 1
             # pseudo_label_1h[class_to_idx[cf]] = 1
             pseudolabels_1h[img_name] = pseudo_label_1h[1:] # Exclude background class

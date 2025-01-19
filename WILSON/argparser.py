@@ -195,6 +195,8 @@ def get_argparser():
                         help="replay dataset root path")
     parser.add_argument("--replay_ratio", default=None, type=float,
                         help="fraction of replay images to use, None for all")
+    parser.add_argument("--replay_size", default=None, type=int,
+                        help="how many replay images per image in voc and per class")
 
 
 

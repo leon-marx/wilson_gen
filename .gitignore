@@ -178,8 +178,5 @@ stablediffusion/pretrained/
 stablediffusion/checkpoints/
 
 # SD Data
-stablediffusion/gen_imgs*
-stablediffusion/gen_cap*
-stablediffusion/old_gen_caps/
-stablediffusion/hp_search/
-stablediffusion/outputs
+gen_imgs*
+
