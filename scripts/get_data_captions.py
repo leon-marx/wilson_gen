@@ -52,6 +52,9 @@ def save_captions(model, processor, image_names):
         for caption in captions:
             caption = caption.replace("\n", " ")
             f.write(caption + "\n")
+        if len(captions) % 8 != 0:
+            for i in range(8 - len(captions) % 8):
+                f.write("\n")
 
 def main():
     image_names = get_image_names()

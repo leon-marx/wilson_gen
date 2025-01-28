@@ -250,6 +250,9 @@ def main(opt):
                     if "aeroplane" in p:
                         class_idx = p.split(" ").index("aeroplane")
                         break
+                    elif "cat" in p:
+                        class_idx = p.split(" ").index("cat")
+                        break
             data = [p for p in data for i in range(opt.repeat)]
             data = list(chunk(data, batch_size))
 
@@ -343,8 +346,9 @@ def main(opt):
             all_samples = list()
             for n in trange(opt.n_iter, desc="Sampling"):
                 for prompts in tqdm(data, desc="data"):
-                    if "voc" in opt.from_file and not "voc_cap" in opt.from_file:
-                        c_strings = [p.replace("tv/monitor", "tv_monitor").replace("potted plant", "potted_plant").replace("dining table", "dining_table").split(" ")[class_idx] for p in prompts]
+                    if opt.from_file:
+                        if "voc" in opt.from_file and not "voc_cap" in opt.from_file:
+                            c_strings = [p.replace("tv/monitor", "tv_monitor").replace("potted plant", "potted_plant").replace("dining table", "dining_table").split(" ")[class_idx] for p in prompts]
                     uc = None
                     if opt.scale != 1.0:
                         uc = model.get_learned_conditioning(batch_size * [""])
@@ -369,10 +373,21 @@ def main(opt):
                         x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                         img = Image.fromarray(x_sample.astype(np.uint8))
                         img = put_watermark(img, wm_encoder)
-                        if "voc" in opt.from_file and not "voc_cap" in opt.from_file:
-                            img.save(os.path.join(sample_path, f"{c_strings[i]}_{base_count:05}.png"))
+                        ###
+                        # PNG HAS BEEN CHANGED TO JPG
+                        # THIS MIGHT NOT SAVE THE IMAGES IN THE EXACT CORRECT FILE FORMAT, BUT PROBABLY DOES
+                        # IN CASE OF ERROR, THIS IS THE PLACE TO LOOK
+                        ###
+                        if opt.from_file:
+                            if "voc" in opt.from_file and not "voc_cap" in opt.from_file:
+                                # img.save(os.path.join(sample_path, f"{c_strings[i]}_{base_count:05}.png"))
+                                img.save(os.path.join(sample_path, f"{c_strings[i]}_{base_count:05}.jpg"), "JPEG", quality=95, optimize=True)
+                            else:
+                                # img.save(os.path.join(sample_path, f"{base_count:05}.png"))
+                                img.save(os.path.join(sample_path, f"{base_count:05}.jpg"), "JPEG", quality=95, optimize=True)
                         else:
-                            img.save(os.path.join(sample_path, f"{base_count:05}.png"))
+                            # img.save(os.path.join(sample_path, f"{base_count:05}.png"))
+                            img.save(os.path.join(sample_path, f"{base_count:05}.jpg"), "JPEG", quality=95, optimize=True)
                         base_count += 1
                         sample_count += 1
 

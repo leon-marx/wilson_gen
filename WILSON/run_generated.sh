@@ -56,14 +56,15 @@ elif [ $1 = mrte ]; then
 
 elif [ $1 = captions ]; then
   echo "Running captions"
-  replay_root=replay_data_cap
+  replay_root=replay_data_better_cap
   # captions disjoint
   if [ $2 = disjoint ] || [ $2 = all ]; then
     path=checkpoints/step/${dataset}-${task}/
     ov=""
     dataset_pars="--dataset ${dataset} --task ${task} --batch_size 24 $ov --val_interval 2"
     pretr=${path}Base_0.pth
-    exp --name Incr_Gen_Cap_Large_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5 --replay_size 3
+    exp --name Incr_Gen_Better_Cap_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_size 1
+    exp --name Incr_Gen_Better_Cap_Large_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5
   fi
 
   # captions overlap
@@ -73,7 +74,8 @@ elif [ $1 = captions ]; then
     echo "Overlap"
     dataset_pars="--dataset ${dataset} --task ${task} --batch_size 24 $ov --val_interval 2"
     pretr=${path}Base_0.pth
-    exp --name Incr_Gen_Cap_Large_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5 --replay_size 2
+    exp --name Incr_Gen_Better_Cap_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_size 1
+    exp --name Incr_Gen_Better_Cap_Large_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5
   fi
 
 else
