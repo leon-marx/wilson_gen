@@ -177,6 +177,7 @@ WILSON/wandb/
 stablediffusion/pretrained/
 stablediffusion/checkpoints/
 
-# SD Data
-gen_imgs*
-
+# LoRA-related files
+hugface/wandb/
+hugface/voc_lora*
+hugface/best_lora*

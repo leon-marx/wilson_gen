@@ -490,7 +490,7 @@ if __name__ == "__main__":
     task = "10-10"
     replay_root = input("Enter replay root: ")
     overlap = input("Overlap? (y/n): ") == "y"
-    repeat = int(input("Repeat images [recommended: 1-3]: "))
+    repeat = int(input("Repeat images [recommended: 1-3(dj), 1-2(ov)]: "))
     print(f"Replay root: {replay_root}")
     print(f"Overlap: {overlap}")
     print(f"Repeat: {repeat}")

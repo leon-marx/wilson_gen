@@ -78,6 +78,30 @@ elif [ $1 = captions ]; then
     exp --name Incr_Gen_Better_Cap_Large_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5
   fi
 
+elif [ $1 = lora ]; then
+  echo "Running lora"
+  replay_root=replay_data_lora
+  # lora disjoint
+  if [ $2 = disjoint ] || [ $2 = all ]; then
+    path=checkpoints/step/${dataset}-${task}/
+    ov=""
+    dataset_pars="--dataset ${dataset} --task ${task} --batch_size 24 $ov --val_interval 2"
+    pretr=${path}Base_0.pth
+    exp --name Incr_Gen_Lora_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_size 1
+    exp --name Incr_Gen_Lora_Large_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5
+  fi
+
+  # lora overlap
+  if [ $2 = overlap ] || [ $2 = all ]; then
+    path=checkpoints/step/${dataset}-${task}-ov/
+    ov="--overlap"
+    echo "Overlap"
+    dataset_pars="--dataset ${dataset} --task ${task} --batch_size 24 $ov --val_interval 2"
+    pretr=${path}Base_0.pth
+    exp --name Incr_Gen_Lora_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_size 1
+    exp --name Incr_Gen_Lora_Large_RR --step 1 --weakly ${dataset_pars} --alpha 0.5 --lr ${lr} --step_ckpt $pretr --loss_de 1 --lr_policy warmup --affinity --epochs ${epochs} --replay --replay_root ${replay_root} --replay_ratio 0.5
+  fi
+
 else
-  echo "Invalid argument provided, ./run_generated.sh [baseline/mrte/captions] [overlap/disjoint/all]"
+  echo "Invalid argument provided, ./run_generated.sh [baseline/mrte/captions/lora] [overlap/disjoint/all]"
 fi
