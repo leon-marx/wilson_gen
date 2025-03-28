@@ -122,8 +122,8 @@ def get_argparser():
                         help="path to trained model. Leave it None if you want to retrain your model")
     parser.add_argument("--continue_ckpt", default=False, action="store_true",
                         help="Restart from the ckpt. Named taken automatically from method name.")
-    parser.add_argument("--ckpt_interval", type=int, default=1,
-                        help="epoch interval for saving model (default: 1)")
+    parser.add_argument("--ckpt_interval", type=int, default=0,
+                        help="epoch interval for saving model (default: 0, only last epoch)")
 
     # Parameters for Knowledge Distillation of ILTSS (https://arxiv.org/abs/1907.13372)
     parser.add_argument("--freeze", action="store_true", default=False,
@@ -197,6 +197,26 @@ def get_argparser():
                         help="fraction of replay images to use, None for all")
     parser.add_argument("--replay_size", default=None, type=int,
                         help="how many replay images per image in voc and per class")
+    parser.add_argument("--inpainting", action="store_true", default=False,
+                        help="whether to use knowledge inpainting to detect new classes in replay data (together with inpainting_old_od also for pascal data)")
+    parser.add_argument("--inpainting_old", action="store_true", default=False,
+                        help="whether to use old model to assign 1-hot labels for old classes in replay data")
+    parser.add_argument("--inpainting_old_od", action="store_true", default=False,
+                        help="whether to use old model to assign 1-hot labels for old classes and use in localizer object detection loss (eq 3)")
+    parser.add_argument("--mask_replay", action="store_true", default=False,
+                        help="whether to mask out some replay data in loss calculation")
+    parser.add_argument("--mask_replay_lde", action="store_true", default=False,
+                        help="whether to mask out some replay data in loss calculation")
+    parser.add_argument("--mask_replay_l_seg", action="store_true", default=False,
+                        help="whether to mask out some replay data in loss calculation")
+    parser.add_argument("--mask_replay_l_loc", action="store_true", default=False,
+                        help="whether to mask out some replay data in loss calculation")
+    parser.add_argument("--mask_replay_l_cls", action="store_true", default=False,
+                        help="whether to mask out some replay data in loss calculation")
+    parser.add_argument("--mask_replay_l_cam_new", action="store_true", default=False,
+                        help="whether to mask out some replay data in loss calculation")
+    parser.add_argument("--mask_pre_inp", action="store_true", default=False,
+                        help="applies masking for the pre-ipainting period. Replay images are only considered where the old model does not see background")
 
 
 

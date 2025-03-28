@@ -63,14 +63,22 @@ def main(opts):
 
     # xxx Set up dataloader
     opts.batch_size = opts.batch_size // world_size
-    train_dst, val_dst, test_dst, labels, n_classes = get_dataset(opts)
+    train_dst, pretrain_dst, val_dst, test_dst, labels, n_classes = get_dataset(opts)
     # reset the seed, this revert changes in random seed
     random.seed(opts.random_seed)
 
     if opts.replay:
-        train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
-                                    sampler=InterleaveSampler(train_dst, batch_size=opts.batch_size),
-                                    num_workers=opts.num_workers, drop_last=True)
+        if opts.inpainting:
+            pretrain_loader = data.DataLoader(pretrain_dst, batch_size=opts.batch_size,
+                                        sampler=DistributedSampler(pretrain_dst, num_replicas=world_size, rank=rank),
+                                        num_workers=opts.num_workers, drop_last=True)
+            train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
+                                        sampler=InterleaveSampler(train_dst, batch_size=opts.batch_size),
+                                        num_workers=opts.num_workers, drop_last=True)
+        else:
+            train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
+                                        sampler=InterleaveSampler(train_dst, batch_size=opts.batch_size),
+                                        num_workers=opts.num_workers, drop_last=True)
     else:
         train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
                                     sampler=DistributedSampler(train_dst, num_replicas=world_size, rank=rank),
@@ -120,7 +128,10 @@ def main(opts):
     logger.add_config(opts)
 
     TRAIN = not opts.test
-    val_metrics = StreamSegMetrics(n_classes)
+    if opts.step == 0:
+        val_metrics = StreamSegMetrics(n_classes)
+    else:
+        val_metrics = StreamSegMetrics(n_classes, n_old_classes=trainer.old_classes)
     results = {}
 
     # check if random is equal here.
@@ -128,7 +139,10 @@ def main(opts):
     # train/val here
     while cur_epoch < opts.epochs and TRAIN:
         # =====  Train  =====
-        epoch_loss = trainer.train(cur_epoch=cur_epoch, train_loader=train_loader)
+        if (cur_epoch < 2 * opts.pseudo_ep) & opts.inpainting:  # pretrain on voc only
+            epoch_loss = trainer.train(cur_epoch=cur_epoch, train_loader=pretrain_loader)
+        else:
+            epoch_loss = trainer.train(cur_epoch=cur_epoch, train_loader=train_loader)
 
         logger.info(f"End of Epoch {cur_epoch}/{opts.epochs}, Average Loss={epoch_loss[0] + epoch_loss[1]},"
                     f" Class Loss={epoch_loss[0]}, Reg Loss={epoch_loss[1]}")
@@ -152,9 +166,11 @@ def main(opts):
             # val set == test set, saving best model not legal
             if rank == 0:  # save best model at the last iteration
                 score = val_score['Mean IoU']
-                # best model to build incremental steps
-                save_ckpt(ckpt_path, trainer, cur_epoch, score)
-                logger.info("[!] Checkpoint saved.")
+                if opts.ckpt_interval > 0:
+                    if (cur_epoch + 1) % opts.ckpt_interval == 0:
+                        # best model to build incremental steps
+                        save_ckpt(f"{ckpt_path[:-4]}_epoch_{cur_epoch + 1}.pth", trainer, cur_epoch, score)
+                        logger.info("[!] Checkpoint saved.")
 
             # =====  Log metrics on Tensorboard =====
             # visualize validation score and samples
@@ -162,6 +178,9 @@ def main(opts):
             logger.add_scalar("Val/MeanAcc", val_score['Agg'][1], cur_epoch)
             logger.add_scalar("Val/MeanPrec", val_score['Agg'][2], cur_epoch)
             logger.add_scalar("Val/MeanIoU", val_score['Mean IoU'], cur_epoch)
+            logger.add_scalar("Val/MeanIoU_Bkg", val_score['Mean IoU Bkg'], cur_epoch)
+            logger.add_scalar("Val/MeanIoU_Old", val_score['Mean IoU Old'], cur_epoch)
+            logger.add_scalar("Val/MeanIoU_New", val_score['Mean IoU New'], cur_epoch)
             logger.add_table("Val/Class_IoU", val_score['Class IoU'], cur_epoch)
             logger.add_table("Val/Acc_IoU", val_score['Class Acc'], cur_epoch)
             logger.add_figure("Val/Confusion_Matrix", val_score['Confusion Matrix'], cur_epoch)
@@ -176,6 +195,9 @@ def main(opts):
                 logger.add_scalar("Val_CAM/MeanAcc", val_score_cam['Agg'][1], cur_epoch)
                 logger.add_scalar("Val_CAM/MeanPrec", val_score_cam['Agg'][2], cur_epoch)
                 logger.add_scalar("Val_CAM/MeanIoU", val_score_cam['Mean IoU'], cur_epoch)
+                logger.add_scalar("Val_CAM/MeanIoU_Bkg", val_score_cam['Mean IoU Bkg'], cur_epoch)
+                logger.add_scalar("Val_CAM/MeanIoU_Old", val_score_cam['Mean IoU Old'], cur_epoch)
+                logger.add_scalar("Val_CAM/MeanIoU_New", val_score_cam['Mean IoU New'], cur_epoch)
                 logger.info(val_metrics.to_str(val_score_cam))
                 plt.close(val_score_cam["Confusion Matrix"])
                 logger.print("Done validation CAM")
@@ -184,6 +206,41 @@ def main(opts):
         logger.info(f"End of Validation {cur_epoch}/{opts.epochs}")
 
         cur_epoch += 1
+
+        # =====  Create 1-Hot for Replay =====
+        if (cur_epoch == 2 * opts.pseudo_ep) & opts.inpainting:
+            import pickle
+            from PIL import Image
+            from dataset import transform
+            _transform = transform.Compose([
+                # transform.Resize(size=512),  # Not necessary, gen_imgs are 512x512 already
+                # transform.CenterCrop(size=512),
+                transform.ToTensor(),
+                transform.Normalize(mean=[0.485, 0.456, 0.406],
+                                    std=[0.229, 0.224, 0.225]),
+                ])
+            rep_data_dir = f"{opts.replay_root}/{opts.task}{'-ov' if opts.overlap else ''}"
+            for cl_dir in os.listdir(rep_data_dir):
+                if os.path.isdir(f"{rep_data_dir}/{cl_dir}"):
+                    with open(f"{rep_data_dir}/{cl_dir}/pseudolabels_1h.pkl", 'rb') as f:
+                        onehots = pickle.load(f)
+                    with torch.no_grad():
+                        trainer.model.eval()
+                        for img_name in os.listdir(f"{rep_data_dir}/{cl_dir}/images"):
+                            img = Image.open(f"{rep_data_dir}/{cl_dir}/images/{img_name}").convert("RGB")
+                            img = _transform(img).to("cuda", dtype=torch.float32).unsqueeze(0)
+                            output_old = trainer.model_old(img, interpolate=False)[0].detach()
+                            output = trainer.model(img, interpolate=False)[0].detach()
+                            inpainted_labels = output.argmax(dim=1, keepdim=True)
+                            inpainted_labels *= (output_old.argmax(dim=1, keepdim=True) == 0).to(torch.int64)
+                            inpainted_labels *= (inpainted_labels > int(opts.task.split("-")[0])).to(torch.int64)
+                            uniques = torch.unique(inpainted_labels)
+                            uniques = uniques[uniques > int(opts.task.split("-")[0])]
+                            for i in uniques:
+                                onehots[f"{img_name[:-4]}.png"][i - 1] = 1
+                    with open(f"{rep_data_dir}/{cl_dir}/inpainted_pseudolabels_1h.pkl", 'wb') as f:
+                        pickle.dump(onehots, f)
+            train_dst.update_pseudolabels()
 
     # =====  Save Best Model at the end of training =====
     if rank == 0 and TRAIN:  # save best model at the last iteration
@@ -201,6 +258,9 @@ def main(opts):
         logger.add_scalar("Val_CAM/MeanAcc", val_score_cam['Agg'][1], cur_epoch)
         logger.add_scalar("Val_CAM/MeanPrec", val_score_cam['Agg'][2], cur_epoch)
         logger.add_scalar("Val_CAM/MeanIoU", val_score_cam['Mean IoU'], cur_epoch)
+        logger.add_scalar("Val_CAM/MeanIoU_Bkg", val_score_cam['Mean IoU Bkg'], cur_epoch)
+        logger.add_scalar("Val_CAM/MeanIoU_Old", val_score_cam['Mean IoU Old'], cur_epoch)
+        logger.add_scalar("Val_CAM/MeanIoU_New", val_score_cam['Mean IoU New'], cur_epoch)
         logger.info(val_metrics.to_str(val_score_cam))
         plt.close(val_score_cam["Confusion Matrix"])
         logger.print("Done validation CAM")
@@ -225,6 +285,9 @@ def main(opts):
 
     logger.add_scalar("Test/Overall_Acc", val_score['Overall Acc'], opts.step)
     logger.add_scalar("Test/MeanIoU", val_score['Mean IoU'], opts.step)
+    logger.add_scalar("Test/MeanIoU_Bkg", val_score['Mean IoU Bkg'], opts.step)
+    logger.add_scalar("Test/MeanIoU_Old", val_score['Mean IoU Old'], opts.step)
+    logger.add_scalar("Test/MeanIoU_New", val_score['Mean IoU New'], opts.step)
     logger.add_scalar("Test/MeanAcc", val_score['Mean Acc'], opts.step)
     logger.commit()
 

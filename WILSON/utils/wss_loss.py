@@ -20,6 +20,27 @@ def ngwp_focal(outputs, focal=True, alpha=1e-5, lam=1e-2):
     return y
 
 
+def ngwp_focal_bg_mask(outputs, bg_mask, focal=True, alpha=1e-5, lam=1e-2):
+    bs, c, h, w = outputs.size()
+
+    masks = F.softmax(outputs, dim=1)
+    masks_ = masks.view(bs, c, -1)
+    masks_ = masks_ * bg_mask[:, :c, :, :].view(bs, c, -1)
+    denom = bg_mask[:, :c, :, :].view(bs, c, -1).sum(-1)
+    denom = torch.max(denom, torch.ones_like(denom))
+    logits = outputs.view(bs, c, -1)
+    # y_ngwp = (logits * (masks_ + alpha)).sum(-1) / (masks_+alpha).sum(-1)
+    y_ngwp = (logits * masks_).sum(-1) / (1.0 + masks_.sum(-1))
+
+    # focal penalty loss
+    if focal:
+        y_focal = torch.pow(1 - masks_.sum(-1) / denom, 3) * torch.log(lam + masks_.sum(-1) / denom)
+        y = y_ngwp + y_focal
+    else:
+        y = y_ngwp
+    return y
+
+
 def attention_cam(outputs, alpha=0.01):
     bs, c, h, w = outputs.size()
 
@@ -35,6 +56,26 @@ def bce_loss(outputs, labels, mode='ngwp', reduction='sum'):
     bs, c, h, w = outputs.size()
     if mode == 'ngwp':
         y = ngwp_focal(outputs)
+    elif mode == 'att':
+        y = attention_cam(outputs)
+    else:
+        logits = outputs.view(bs, c, -1)
+        y = logits.mean(-1)
+
+    bs, n_cls = labels.shape
+    y = y[:, -n_cls:]
+
+    if reduction == 'sum':
+        l = F.binary_cross_entropy_with_logits(y, labels, reduction="none").sum(dim=1).mean()
+    else:
+        l = F.binary_cross_entropy_with_logits(y, labels)
+    return l
+
+
+def bce_loss_bg_mask(outputs, labels, bg_mask, mode='ngwp', reduction='sum'):
+    bs, c, h, w = outputs.size()
+    if mode == 'ngwp':
+        y = ngwp_focal_bg_mask(outputs, bg_mask)
     elif mode == 'att':
         y = attention_cam(outputs)
     else:

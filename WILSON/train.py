@@ -14,8 +14,8 @@ from torch.nn.parallel import DistributedDataParallel
 import os.path as osp
 from wss.modules import PAMR, ASPP
 from utils.utils import denorm, label_to_one_hot
-from wss.single_stage import pseudo_gtmask, balanced_mask_loss_ce, balanced_mask_loss_unce
-from utils.wss_loss import bce_loss, ngwp_focal, binarize
+from wss.single_stage import pseudo_gtmask, balanced_mask_loss_ce, balanced_mask_loss_unce, balanced_mask_loss_ce_bg_mask
+from utils.wss_loss import bce_loss, ngwp_focal, binarize, bce_loss_bg_mask
 from segmentation_module import get_norm
 from utils.scheduler import get_scheduler
 
@@ -160,6 +160,17 @@ class Trainer:
         l_icarl = torch.tensor(0.)
         l_reg = torch.tensor(0.)
 
+        if self.weakly:
+            l_seg_new = 0.0
+            l_seg_old = 0.0
+            l_cam_new_tot = 0.0
+            l_loc_tot = 0.0
+            lde_tot = 0.0
+            l_seg_tot = 0.0
+            l_seg_new_tot = 0.0
+            l_seg_old_tot = 0.0
+            l_cls_tot = 0.0
+
         train_loader.sampler.set_epoch(cur_epoch)
 
         if distributed.get_rank() == 0:
@@ -220,24 +231,85 @@ class Trainer:
                 else:
                     bs = images.shape[0]
 
+                    # generating masks for replay
+                    rep_mask = (labels.view(bs, -1).sum(dim=1) != 0.0).to(bool)  # masks out replay images (false for rep, true for voc)
+                    rep_bg_mask = torch.zeros_like(outputs.detach())
+                    rep_bg_mask[torch.stack([(outputs_old.detach().argmax(dim=1) != 0).to(bool)] * self.tot_classes, dim=1)] = 1
+                    rep_bg_mask[rep_mask] = 1
+
+                    # add 1-hot labels for old classes in replay data
+                    if self.opts.inpainting_old_od:  # inpaint old classes in all data, use for localizer od loss
+                        l1h_inp_od = l1h.clone()
+                        for i, old_output in enumerate(outputs_old.detach()):
+                            uniques = torch.unique(old_output.argmax(dim=0)).cpu()
+                            uniques = uniques[(uniques > 0) & (uniques <= self.old_classes)]
+                            l1h_inp_od[i][uniques - 1] = 1.0
+                            if self.opts.inpainting_old:  # additionally use old class inpaintings for other losses
+                                l1h[i][uniques - 1] = 1.0
+                    elif self.opts.inpainting_old:  # inpaint old classes in replay data, use for other losses
+                        for i, old_output in enumerate(outputs_old.detach()):
+                            if not rep_mask[i]:
+                                uniques = torch.unique(old_output.argmax(dim=0)).cpu()
+                                uniques = uniques[(uniques > 0) & (uniques <= self.old_classes)]
+                                l1h[i][uniques - 1] = 1.0
+
                     self.pseudolabeler.eval()
                     int_masks = self.pseudolabeler(features['body']).detach()
 
                     self.pseudolabeler.train()
                     int_masks_raw = self.pseudolabeler(features['body'])
 
-                    if self.opts.no_mask:
-                        l_cam_new = bce_loss(int_masks_raw, l1h, mode=self.opts.cam, reduction='mean')
+                    if self.opts.no_mask | self.opts.inpainting_old_od:
+                        if self.opts.mask_replay_l_cam_new:
+                            l_cam_new = bce_loss(int_masks_raw[rep_mask], l1h_inp_od[rep_mask], mode=self.opts.cam, reduction='mean')
+                        elif self.opts.mask_pre_inp:
+                            l_cam_new = bce_loss_bg_mask(int_masks_raw, l1h_inp_od,
+                                                rep_bg_mask, mode=self.opts.cam, reduction='mean')
+                        else:
+                            l_cam_new = bce_loss(int_masks_raw, l1h_inp_od, mode=self.opts.cam, reduction='mean')
                     else:
-                        l_cam_new = bce_loss(int_masks_raw, l1h[:, self.old_classes - 1:],
-                                             mode=self.opts.cam, reduction='mean')
-                    l_loc = F.binary_cross_entropy_with_logits(int_masks_raw[:, :self.old_classes],
-                                                               torch.sigmoid(outputs_old.detach()),
-                                                               reduction='mean')
+                        # assuming replay data with mixed classes and all-0 1-hot labels
+                        # this would train model to not see new classes, but they might be present
+                        # disable replay
+                        if self.opts.mask_replay_l_cam_new:
+                            l_cam_new = bce_loss(int_masks_raw[rep_mask], l1h[rep_mask, self.old_classes - 1:],
+                                                mode=self.opts.cam, reduction='mean')
+                        elif self.opts.mask_pre_inp:
+                            l_cam_new = bce_loss_bg_mask(int_masks_raw, l1h[:, self.old_classes - 1:],
+                                                rep_bg_mask, mode=self.opts.cam, reduction='mean')
+                        else:
+                            l_cam_new = bce_loss(int_masks_raw, l1h[:, self.old_classes - 1:],
+                                                mode=self.opts.cam, reduction='mean')
+
+                    # assuming replay data with mixed classes and all-0 1-hot labels
+                    # this traines the model to see old classes -> good
+                    # but background shift -> only where old model does not see background (for replay)
+                    # alternative: disable since localizer should only care about new classes
+                    if self.opts.mask_replay_l_loc:
+                        l_loc = (F.binary_cross_entropy_with_logits(int_masks_raw[rep_mask, :self.old_classes],
+                                                                   torch.sigmoid(outputs_old)[rep_mask],
+                                                                   reduction='none',
+                                                                   )).mean()
+                    elif self.opts.mask_pre_inp:
+                        l_loc = (F.binary_cross_entropy_with_logits(int_masks_raw[:, :self.old_classes],
+                                                                   torch.sigmoid(outputs_old),
+                                                                   reduction='none',
+                                                                   ) * rep_bg_mask[:, :self.old_classes]).mean()
+                    else:
+                        l_loc = F.binary_cross_entropy_with_logits(int_masks_raw[:, :self.old_classes],
+                                                                torch.sigmoid(outputs_old.detach()),
+                                                                reduction='mean',
+                                                                )
                     l_cam_int = l_cam_new + l_loc
 
                     if self.lde_flag:
-                        lde = self.lde * self.lde_loss(features['body'], features_old['body'])
+                        # assuming replay data with mixed classes and all-0 1-hot labels
+                        # this pushes model back to old model -> would be good for non-background only
+                        # but pixels of feature maps not necessarily aligned with model output -> disable replay
+                        if self.opts.mask_replay_lde:
+                            lde = self.lde * self.lde_loss(features['body'][rep_mask], features_old['body'][rep_mask])
+                        else:
+                            lde = self.lde * self.lde_loss(features['body'], features_old['body'])
 
                     l_cam_out = 0 * outputs[0, 0].mean()  # avoid errors due to DDP
 
@@ -264,8 +336,10 @@ class Trainer:
 
                         # ignore_mask = (pseudo_gt_seg.sum(1) > 0)
                         px_cls_per_image = pseudo_gt_seg_lx.view(bs, self.tot_classes, -1).sum(dim=-1)
+                        # batch_weight = (bs, n_classes), 1 if localizer and l1h agree on existence/absence of new class in image, 0 else
                         batch_weight = torch.eq((px_cls_per_image[:, self.old_classes:] > 0),
                                                 l1h[:, self.old_classes - 1:].bool())
+                        # batch_weight = (bs), 1 if localizer and l1h agree on existence/absence of all new classes in image, 0 else
                         batch_weight = (
                                     batch_weight.sum(dim=1) == (self.tot_classes - self.old_classes)).float()
 
@@ -278,11 +352,48 @@ class Trainer:
                             target[:, 0] = (1-self.opts.icarl_bkg) * target[:, 0] + \
                                            self.opts.icarl_bkg * pseudo_gt_seg_lx[:, 0]
 
-                        l_seg = F.binary_cross_entropy_with_logits(outputs, target, reduction='none').sum(dim=1)
-                        l_seg = l_seg.view(bs, -1).mean(dim=-1)
-                        l_seg = self.opts.l_seg * (batch_weight * l_seg).sum() / (batch_weight.sum() + 1e-5)
+                        # assuming replay data with mixed classes and all-0 1-hot labels
+                        # for old classes, this trains model to find old classes -> good, but background shift -> only non-background (for replay)
+                        # for new classes, this trains model to not see new classes -> disable replay
+                        if self.opts.mask_replay_l_seg:
+                            l_seg_new = F.binary_cross_entropy_with_logits(outputs[rep_mask, self.old_classes:], target[rep_mask, self.old_classes:], reduction='none').sum(dim=1)
+                            l_seg_old = (F.binary_cross_entropy_with_logits(outputs[:, :self.old_classes], target[:, :self.old_classes], reduction='none') * rep_bg_mask).sum(dim=1)
+                            l_seg_new = l_seg_new.view(rep_mask.sum(), -1).mean(dim=-1)
+                            l_seg_old = l_seg_old.view(bs, -1).mean(dim=-1)
+                            l_seg_new = self.opts.l_seg * (batch_weight[rep_mask] * l_seg_new).sum() / (batch_weight[rep_mask].sum() + 1e-5)
+                            l_seg_old = self.opts.l_seg * l_seg_old.sum() / (bs + 1e-5)
+                            l_seg = l_seg_new + l_seg_old
+                        elif self.opts.mask_pre_inp:
+                            l_seg_new = F.binary_cross_entropy_with_logits(outputs[:, self.old_classes:], target[:, self.old_classes:], reduction='none')
+                            l_seg_old = F.binary_cross_entropy_with_logits(outputs[:, :self.old_classes], target[:, :self.old_classes], reduction='none')
+                            l_seg_new = (l_seg_new * rep_bg_mask[:, self.old_classes:]).sum(dim=1)
+                            l_seg_old = (l_seg_old * rep_bg_mask[:, :self.old_classes]).sum(dim=1)
+                            l_seg_new = l_seg_new.view(bs, -1).mean(dim=-1)
+                            l_seg_old = l_seg_old.view(bs, -1).mean(dim=-1)
+                            l_seg_new = self.opts.l_seg * (batch_weight * l_seg_new).sum() / (batch_weight.sum() + 1e-5)
+                            l_seg_old = self.opts.l_seg * (batch_weight * l_seg_old).sum() / (batch_weight.sum() + 1e-5)
+                            l_seg = l_seg_new + l_seg_old
+                        else:
+                            # divide into old $ new to allow for comparison
+                            # l_seg = F.binary_cross_entropy_with_logits(outputs, target, reduction='none').sum(dim=1)
+                            # l_seg = l_seg.view(bs, -1).mean(dim=-1)
+                            # l_seg = self.opts.l_seg * (batch_weight * l_seg).sum() / (batch_weight.sum() + 1e-5)
+                            l_seg_new = F.binary_cross_entropy_with_logits(outputs[:, self.old_classes:], target[:, self.old_classes:], reduction='none').sum(dim=1)
+                            l_seg_old = F.binary_cross_entropy_with_logits(outputs[: :self.old_classes], target[: :self.old_classes], reduction='none').sum(dim=1)
+                            l_seg_new = l_seg_new.view(bs, -1).mean(dim=-1)
+                            l_seg_old = l_seg_old.view(bs, -1).mean(dim=-1)
+                            l_seg_new = self.opts.l_seg * (batch_weight * l_seg_new).sum() / (batch_weight.sum() + 1e-5)
+                            l_seg_old = self.opts.l_seg * (batch_weight * l_seg_old).sum() / (batch_weight.sum() + 1e-5)
+                            l_seg = l_seg_new + l_seg_old
 
-                        l_cls = balanced_mask_loss_ce(int_masks_raw, pseudo_gt_seg, l1h)
+                        # assuming replay data with mixed classes and all-0 1-hot labels
+                        # this trains model to no see new classes -> disable replay
+                        if self.opts.mask_replay_l_cls:
+                            l_cls = balanced_mask_loss_ce(int_masks_raw[rep_mask], pseudo_gt_seg[rep_mask], l1h[rep_mask])
+                        elif self.opts.mask_pre_inp:
+                            l_cls = balanced_mask_loss_ce_bg_mask(int_masks_raw, pseudo_gt_seg, l1h, rep_bg_mask[:, 0])
+                        else:
+                            l_cls = balanced_mask_loss_ce(int_masks_raw, pseudo_gt_seg, l1h)
 
                     loss = l_seg + l_cam_out
                     l_reg = l_cls + l_cam_int
@@ -301,6 +412,15 @@ class Trainer:
             reg_loss += lkd.item() + lde.item() + l_icarl.item()
             interval_loss += loss.item() + lkd.item() + lde.item() + l_icarl.item()
             interval_loss += l_reg.item() if l_reg != 0. else 0.
+
+            if self.weakly:
+                l_cam_new_tot += l_cam_new.item() if l_cam_new != 0. else 0.
+                l_loc_tot += l_loc.item() if l_loc != 0. else 0.
+                lde_tot += lde.item() if lde != 0. else 0.
+                l_seg_tot += l_seg.item() if l_seg != 0. else 0.
+                l_seg_new_tot += l_seg_new.item() if l_seg_new != 0. else 0.
+                l_seg_old_tot += l_seg_old.item() if l_seg_old != 0. else 0.
+                l_cls_tot += l_cls.item() if l_cls != 0. else 0.
 
             if tq is not None:
                 tq.update(1)
@@ -341,6 +461,14 @@ class Trainer:
             reg_loss = reg_loss / distributed.get_world_size() / len(train_loader)
 
         logger.info(f"Epoch {cur_epoch}, Class Loss={epoch_loss}, Reg Loss={reg_loss}")
+        if self.weakly:
+            logger.add_scalar("loss_detailed/l_cam_new", l_cam_new_tot / len(train_loader), cur_epoch)
+            logger.add_scalar("loss_detailed/l_loc", l_loc_tot / len(train_loader), cur_epoch)
+            logger.add_scalar("loss_detailed/lde", lde_tot / len(train_loader), cur_epoch)
+            logger.add_scalar("loss_detailed/l_seg", l_seg_tot / len(train_loader), cur_epoch)
+            logger.add_scalar("loss_detailed/l_seg_new", l_seg_new_tot / len(train_loader), cur_epoch)
+            logger.add_scalar("loss_detailed/l_seg_old", l_seg_old_tot / len(train_loader), cur_epoch)
+            logger.add_scalar("loss_detailed/l_cls", l_cls_tot / len(train_loader), cur_epoch)
 
         return (epoch_loss, reg_loss)
 

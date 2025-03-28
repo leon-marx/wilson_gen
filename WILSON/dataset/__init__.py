@@ -54,12 +54,20 @@ def get_dataset(opts):
 
     if not os.path.exists(path_base):
         os.makedirs(path_base, exist_ok=True)
+
+    pretrain_dst = None
     if opts.replay:
-        train_dst = VOCGenSegmentationIncremental(root=opts.data_root, replay_root=opts.replay_root, replay_ratio=opts.replay_ratio, replay_size=opts.replay_size,
-                                                  task=opts.task, step_dict=step_dict, train=True, transform=train_transform,
-                                                  idxs_path=path_base_train + f"/train-{opts.step}.npy", masking_value=masking_value,
-                                                  masking=not opts.no_mask, overlap=opts.overlap, step=opts.step, weakly=opts.weakly,
-                                                  pseudo=pseudo)
+        if opts.inpainting:
+            pretrain_dst = dataset(root=opts.data_root, step_dict=step_dict, train=True, transform=train_transform,
+                            idxs_path=path_base_train + f"/train-{opts.step}.npy", masking_value=masking_value,
+                            masking=not opts.no_mask, overlap=opts.overlap, step=opts.step, weakly=opts.weakly,
+                            pseudo=pseudo)
+        train_dst = VOCGenSegmentationIncremental(root=opts.data_root, replay_root=opts.replay_root, replay_ratio=opts.replay_ratio,
+                                                replay_size=opts.replay_size, inpainting=opts.inpainting,
+                                                task=opts.task, step_dict=step_dict, train=True, transform=train_transform,
+                                                idxs_path=path_base_train + f"/train-{opts.step}.npy", masking_value=masking_value,
+                                                masking=not opts.no_mask, overlap=opts.overlap, step=opts.step, weakly=opts.weakly,
+                                                pseudo=pseudo)
     else:
         train_dst = dataset(root=opts.data_root, step_dict=step_dict, train=True, transform=train_transform,
                             idxs_path=path_base_train + f"/train-{opts.step}.npy", masking_value=masking_value,
@@ -77,5 +85,5 @@ def get_dataset(opts):
                          masking=False, masking_value=255, weakly=opts.weakly,
                          idxs_path=path_base + f"/test_on_{image_set}-{opts.step}.npy", step=opts.step)
 
-    return train_dst, val_dst, test_dst, labels_cum, len(labels_cum)
+    return train_dst, pretrain_dst, val_dst, test_dst, labels_cum, len(labels_cum)
 

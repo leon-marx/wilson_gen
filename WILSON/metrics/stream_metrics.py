@@ -35,8 +35,9 @@ class StreamSegMetrics(_StreamMetrics):
     """
     Stream Metrics for Semantic Segmentation Task
     """
-    def __init__(self, n_classes):
+    def __init__(self, n_classes, n_old_classes=None):
         super().__init__()
+        self.n_old_classes = n_old_classes  # old classes and background
         self.n_classes = n_classes
         self.confusion_matrix = np.zeros((n_classes, n_classes))
         self.total_samples = 0
@@ -93,6 +94,9 @@ class StreamSegMetrics(_StreamMetrics):
         precision_cls = np.mean(precision_cls_c)
         iu = diag / (gt_sum + hist.sum(axis=0) - diag + EPS)
         mean_iu = np.mean(iu[mask])
+        mean_iu_bkg = np.mean(iu[:1]) if self.n_old_classes is not None else "X"
+        mean_iu_old = np.mean(iu[1:self.n_old_classes]) if self.n_old_classes is not None else "X"
+        mean_iu_new = np.mean(iu[self.n_old_classes:]) if self.n_old_classes is not None else "X"
         freq = hist.sum(axis=1) / hist.sum()
         fwavacc = (freq[freq > 0] * iu[freq > 0]).sum()
 
@@ -108,6 +112,9 @@ class StreamSegMetrics(_StreamMetrics):
                 # "FreqW Acc": fwavacc,
                 "Mean IoU": mean_iu,
                 "Class IoU": cls_iu,
+                "Mean IoU Bkg": mean_iu_bkg,
+                "Mean IoU Old": mean_iu_old,
+                "Mean IoU New": mean_iu_new,
                 "Class Acc": cls_acc,
                 "Class Prec": cls_prec,
                 "Agg": [mean_iu, acc_cls, precision_cls],

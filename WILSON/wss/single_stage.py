@@ -49,11 +49,11 @@ def balanced_mask_loss_ce(mask, pseudo_gt, gt_labels, ignore_index=255, old_clas
     # b,c,h,w = pseudo_gt.shape
     mask = F.interpolate(mask, size=pseudo_gt.size()[-2:], mode="bilinear", align_corners=True)
 
-    # indices of the max classes
+    # indices of the max classes (only new)
     mask_gt = torch.argmax(pseudo_gt, 1)
 
     # for each pixel there should be at least one 1
-    # otherwise, ignore
+    # otherwise, ignore -> ignores all old-class pixels
     ignore_mask = pseudo_gt.sum(1) < 1.
     mask_gt[ignore_mask] = ignore_index
 
@@ -65,12 +65,52 @@ def balanced_mask_loss_ce(mask, pseudo_gt, gt_labels, ignore_index=255, old_clas
     class_weight = (num_pixels_total - num_pixels_per_class) / (1 + num_pixels_total)  # BS, C
     class_weight = (pseudo_gt * class_weight[:, :, None, None]).sum(1).view(bs, -1)  # BS, H, W
 
-    # BCE loss
+    # CE loss
     loss = F.cross_entropy(mask, mask_gt, ignore_index=ignore_index, reduction="none")
     loss = loss.view(bs, -1)
 
     # we will have the loss only for batch indices
-    # which have all classes in pseudo mask
+    # which have all new classes in pseudo mask
+    gt_num_labels = gt_labels.sum(-1).type_as(loss) + 1  # + BG
+    ps_num_labels = (num_pixels_per_class > 0).type_as(loss).sum(-1)
+    batch_weight = (gt_num_labels == ps_num_labels).type_as(loss)
+
+    loss = batch_weight * (class_weight * loss).mean(-1)
+    return loss.mean()
+
+
+def balanced_mask_loss_ce_bg_mask(mask, pseudo_gt, gt_labels, bg_mask, ignore_index=255, old_classes=16):
+    """Class-balanced CE loss
+    - cancel loss if only one class in pseudo_gt
+    - weight loss equally between classes
+    """
+
+    # b,c,h,w = pseudo_gt.shape
+    mask = F.interpolate(mask, size=pseudo_gt.size()[-2:], mode="bilinear", align_corners=True)
+
+    # indices of the max classes (only new)
+    mask_gt = torch.argmax(pseudo_gt, 1)
+
+    # for each pixel there should be at least one 1
+    # otherwise, ignore -> ignores all old-class pixels
+    ignore_mask = pseudo_gt.sum(1) < 1.
+    mask_gt[ignore_mask] = ignore_index
+    mask_gt[bg_mask == 0.] = ignore_index
+
+    # class weight balances the loss w.r.t. number of pixels
+    # because we are equally interested in all classes
+    bs, c, h, w = pseudo_gt.size()
+    num_pixels_per_class = pseudo_gt.view(bs, c, -1).sum(-1)  # BS, C -> pixel per class
+    num_pixels_total = num_pixels_per_class.sum(-1, keepdim=True)  # BS -> pixel per image
+    class_weight = (num_pixels_total - num_pixels_per_class) / (1 + num_pixels_total)  # BS, C
+    class_weight = (pseudo_gt * class_weight[:, :, None, None]).sum(1).view(bs, -1)  # BS, H, W
+
+    # CE loss
+    loss = F.cross_entropy(mask, mask_gt, ignore_index=ignore_index, reduction="none")
+    loss = loss.view(bs, -1)
+
+    # we will have the loss only for batch indices
+    # which have all new classes in pseudo mask
     gt_num_labels = gt_labels.sum(-1).type_as(loss) + 1  # + BG
     ps_num_labels = (num_pixels_per_class > 0).type_as(loss).sum(-1)
     batch_weight = (gt_num_labels == ps_num_labels).type_as(loss)
