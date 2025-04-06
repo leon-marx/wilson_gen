@@ -63,22 +63,14 @@ def main(opts):
 
     # xxx Set up dataloader
     opts.batch_size = opts.batch_size // world_size
-    train_dst, pretrain_dst, val_dst, test_dst, labels, n_classes = get_dataset(opts)
+    train_dst, val_dst, test_dst, labels, n_classes = get_dataset(opts)
     # reset the seed, this revert changes in random seed
     random.seed(opts.random_seed)
 
     if opts.replay:
-        if opts.inpainting:
-            pretrain_loader = data.DataLoader(pretrain_dst, batch_size=opts.batch_size,
-                                        sampler=DistributedSampler(pretrain_dst, num_replicas=world_size, rank=rank),
-                                        num_workers=opts.num_workers, drop_last=True)
-            train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
-                                        sampler=InterleaveSampler(train_dst, batch_size=opts.batch_size),
-                                        num_workers=opts.num_workers, drop_last=True)
-        else:
-            train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
-                                        sampler=InterleaveSampler(train_dst, batch_size=opts.batch_size),
-                                        num_workers=opts.num_workers, drop_last=True)
+        train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
+                                    sampler=InterleaveSampler(train_dst, batch_size=opts.batch_size),
+                                    num_workers=opts.num_workers, drop_last=True)
     else:
         train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
                                     sampler=DistributedSampler(train_dst, num_replicas=world_size, rank=rank),
@@ -139,8 +131,13 @@ def main(opts):
     # train/val here
     while cur_epoch < opts.epochs and TRAIN:
         # =====  Train  =====
-        if (cur_epoch < 2 * opts.pseudo_ep) & opts.inpainting:  # pretrain on voc only
-            epoch_loss = trainer.train(cur_epoch=cur_epoch, train_loader=pretrain_loader)
+        if cur_epoch == opts.inpainting_epoch:
+            trainer.inpaint_onehots()
+            opts.mask_pre_inp = False
+            trainer.opts.mask_pre_inp = False
+            train_dst.update_pseudolabels()
+            epoch_loss = trainer.train(cur_epoch=cur_epoch, train_loader=train_loader)
+
         else:
             epoch_loss = trainer.train(cur_epoch=cur_epoch, train_loader=train_loader)
 
@@ -206,41 +203,6 @@ def main(opts):
         logger.info(f"End of Validation {cur_epoch}/{opts.epochs}")
 
         cur_epoch += 1
-
-        # =====  Create 1-Hot for Replay =====
-        if (cur_epoch == 2 * opts.pseudo_ep) & opts.inpainting:
-            import pickle
-            from PIL import Image
-            from dataset import transform
-            _transform = transform.Compose([
-                # transform.Resize(size=512),  # Not necessary, gen_imgs are 512x512 already
-                # transform.CenterCrop(size=512),
-                transform.ToTensor(),
-                transform.Normalize(mean=[0.485, 0.456, 0.406],
-                                    std=[0.229, 0.224, 0.225]),
-                ])
-            rep_data_dir = f"{opts.replay_root}/{opts.task}{'-ov' if opts.overlap else ''}"
-            for cl_dir in os.listdir(rep_data_dir):
-                if os.path.isdir(f"{rep_data_dir}/{cl_dir}"):
-                    with open(f"{rep_data_dir}/{cl_dir}/pseudolabels_1h.pkl", 'rb') as f:
-                        onehots = pickle.load(f)
-                    with torch.no_grad():
-                        trainer.model.eval()
-                        for img_name in os.listdir(f"{rep_data_dir}/{cl_dir}/images"):
-                            img = Image.open(f"{rep_data_dir}/{cl_dir}/images/{img_name}").convert("RGB")
-                            img = _transform(img).to("cuda", dtype=torch.float32).unsqueeze(0)
-                            output_old = trainer.model_old(img, interpolate=False)[0].detach()
-                            output = trainer.model(img, interpolate=False)[0].detach()
-                            inpainted_labels = output.argmax(dim=1, keepdim=True)
-                            inpainted_labels *= (output_old.argmax(dim=1, keepdim=True) == 0).to(torch.int64)
-                            inpainted_labels *= (inpainted_labels > int(opts.task.split("-")[0])).to(torch.int64)
-                            uniques = torch.unique(inpainted_labels)
-                            uniques = uniques[uniques > int(opts.task.split("-")[0])]
-                            for i in uniques:
-                                onehots[f"{img_name[:-4]}.png"][i - 1] = 1
-                    with open(f"{rep_data_dir}/{cl_dir}/inpainted_pseudolabels_1h.pkl", 'wb') as f:
-                        pickle.dump(onehots, f)
-            train_dst.update_pseudolabels()
 
     # =====  Save Best Model at the end of training =====
     if rank == 0 and TRAIN:  # save best model at the last iteration

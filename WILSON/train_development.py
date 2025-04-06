@@ -167,243 +167,6 @@ class Trainer:
         if self.weakly:
             self.pseudolabeler = self.pseudolabeler.to(self.device)
 
-    def train(self, cur_epoch, train_loader, print_int=10):
-        """Train and return epoch loss"""
-        optim = self.optimizer
-        scheduler = self.scheduler
-        device = self.device
-        model = self.model
-        criterion = self.criterion
-
-        epoch_loss = 0.0
-        reg_loss = 0.0
-        l_cam_out = 0.0
-        l_cam_int = 0.0
-        l_seg = 0.0
-        l_cls = 0.0
-        interval_loss = 0.0
-
-        lkd = torch.tensor(0.)
-        lde = torch.tensor(0.)
-        l_icarl = torch.tensor(0.)
-        l_reg = torch.tensor(0.)
-
-        train_loader.sampler.set_epoch(cur_epoch)
-
-        tq = tqdm.tqdm(total=len(train_loader))
-        tq.set_description("Epoch %d, lr = %f" % (cur_epoch, optim.param_groups[0]['lr']))
-
-        model.train()
-        for cur_step, (images, labels, l1h) in enumerate(train_loader):
-
-            images = images.to(device, dtype=torch.float)
-            images = torch.clamp(images , -3, 3)
-            l1h = l1h.to(device, dtype=torch.float)  # this are one_hot
-            labels = labels.to(device, dtype=torch.long)
-
-            with amp.autocast():
-                if (self.lde_flag or self.lkd_flag or self.icarl_dist_flag or self.weakly) and self.model_old is not None:
-                    with torch.no_grad():
-                        outputs_old, features_old = self.model_old(images, interpolate=False)
-
-                optim.zero_grad()
-                outputs, features = model(images, interpolate=False)
-
-                # xxx BCE / Cross Entropy Loss
-                if not self.weakly:
-                    outputs = F.interpolate(outputs, size=images.shape[-2:], mode="bilinear", align_corners=False)
-                    if not self.icarl_only_dist:
-                        loss = criterion(outputs, labels)  # B x H x W
-                    else:
-                        # ICaRL loss -- unique CE+KD
-                        outputs_old = F.interpolate(outputs_old, size=images.shape[-2:], mode="bilinear",
-                                                    align_corners=False)
-                        loss = self.licarl(outputs, labels, torch.sigmoid(outputs_old))
-
-                    loss = loss.mean()  # scalar
-
-                    # xxx ICARL DISTILLATION
-                    if self.icarl_combined:
-                        # tensor.narrow( dim, start, end) -> slice tensor from start to end in the specified dim
-                        n_cl_old = outputs_old.shape[1]
-                        outputs_old = F.interpolate(outputs_old, size=images.shape[-2:], mode="bilinear",
-                                                    align_corners=False)
-                        # use n_cl_old to sum the contribution of each class, and not to average them (as done in our BCE).
-                        l_icarl = self.icarl * n_cl_old * self.licarl(outputs.narrow(1, 0, n_cl_old),
-                                                                      torch.sigmoid(outputs_old))
-
-                    # xxx ILTSS (distillation on features or logits)
-                    if self.lde_flag:
-                        lde = self.lde * self.lde_loss(features['body'], features_old['body'])
-
-                    if self.lkd_flag:
-                        outputs_old = F.interpolate(outputs_old, size=images.shape[-2:], mode="bilinear",
-                                                    align_corners=False)
-                        # resize new output to remove new logits and keep only the old ones
-                        lkd = self.lkd * self.lkd_loss(outputs, outputs_old)
-
-                else:
-                    bs = images.shape[0]
-                    self.pseudolabeler.eval()
-                    # pseudo 1hot ground truths
-                    int_masks = self.pseudolabeler(features['body']).detach()
-
-                    self.pseudolabeler.train()
-                    # localizer prediction
-                    int_masks_raw = self.pseudolabeler(features['body'])
-
-                    # knowledge-inpainting of one-hot labels
-                    if self.opts.inpainting:
-                        rep_mask = (l1h.sum(dim=1) == 0).to(torch.int64)[:, None, None, None]
-                    else:
-                        rep_mask = torch.zeros(bs).to(device, torch.int64)
-                    if (cur_epoch >= 2 * self.pseudo_epoch) & self.opts.inpainting:  # give model 5 extra epochs to find new classes
-                        with torch.no_grad():
-                            model.eval()
-                            outputs_new = model(images, interpolate=False)[0].detach()
-                            model.train()
-                        # not completely clear whether outputs or int_masks is better here
-                        # inpainted_labels = outputs.detach().argmax(dim=1, keepdim=True)
-                        # inpainted_labels = int_masks.argmax(dim=1, keepdim=True)
-                        inpainted_labels = outputs_new.argmax(dim=1, keepdim=True)
-
-                        inpainted_labels *= rep_mask  # only replay images (characterized by 0 l1h)
-                        inpainted_labels *= (outputs_old.detach().argmax(dim=1, keepdim=True) == 0).to(torch.int64)  # old model sees background
-                        inpainted_labels *= (inpainted_labels > (self.old_classes - 1)).to(torch.int64)  # new model sees new classes
-                        for i in range(bs):
-                            uniques = torch.unique(inpainted_labels[i])
-                            uniques = uniques[uniques > 10]  # only new classes, old classes might be detrimental -> consider later
-                            l1h[i][uniques - 1] = 1.0  # - 1 cause background not in l1h
-                        if self.opts.no_mask:
-                            l_cam_new = bce_loss(int_masks_raw, l1h, mode=self.opts.cam, reduction='mean')
-                        else:
-                            l_cam_new = bce_loss(int_masks_raw, l1h[:, self.old_classes - 1:],
-                                                mode=self.opts.cam, reduction='mean')
-                    else:
-                        if self.opts.no_mask:
-                            l_cam_new = bce_loss(int_masks_raw[(1 - rep_mask).to(bool).view(-1)], l1h[(1 - rep_mask).to(bool).view(-1)], mode=self.opts.cam, reduction='mean')
-                        else:
-                            l_cam_new = bce_loss(int_masks_raw[(1 - rep_mask).to(bool).view(-1)], l1h[(1 - rep_mask).to(bool).view(-1), self.old_classes - 1:],
-                                                mode=self.opts.cam, reduction='mean')
-                    # l_loc is the localizer loss in spotting the old classes making use of the frozen model (outputs_old)
-                    l_loc = F.binary_cross_entropy_with_logits(int_masks_raw[:, :self.old_classes],
-                                                               torch.sigmoid(outputs_old.detach()),
-                                                               reduction='mean')
-                    # l_cam_int is overall localizer loss to spot new and old classes
-                    l_cam_int = l_cam_new + l_loc
-
-                    # destillation loss to align new model with old model
-                    if self.lde_flag:
-                        lde = self.lde * self.lde_loss(features['body'], features_old['body'])
-
-                    l_cam_out = 0 * outputs[0, 0].mean()  # avoid errors due to DDP
-
-                    if cur_epoch >= self.pseudo_epoch:
-
-                        int_masks_orig = int_masks.softmax(dim=1)
-                        int_masks_soft = int_masks.softmax(dim=1)
-
-                        if self.use_aff:
-                            image_raw = denorm(images)
-                            im = F.interpolate(image_raw, int_masks.shape[-2:], mode="bilinear",
-                                               align_corners=True)
-                            # im is a resized version of the original images (24, 3, 32, 32)
-                            int_masks_soft = self.affinity(im, int_masks_soft.detach())
-
-                        # this masks out all the old classes
-                        int_masks_orig[:, 1:] *= l1h[:, :, None, None]
-                        int_masks_soft[:, 1:] *= l1h[:, :, None, None]
-                        # pseudo_gt_seg is blind to old classes
-                        # pseudo_gt_seg is onehot mask (all-zero pixels allowed)
-                        # the entries are thresholded to keep only very confident predictions
-                        # all other pixels are ignored, including old classes
-                        pseudo_gt_seg = pseudo_gtmask(int_masks_soft, ambiguous=True, cutoff_top=0.6,
-                                                      cutoff_bkg=0.7, cutoff_low=0.2).detach()  # B x C x HW
-
-                        # pseudo_gt_seg_lx gets binarized. (1 hot for every pixel)
-                        # this one hot gets merged with soft activations (int_masks_orig) with ratio alpha
-                        # pseudo_gt_seg_lx is blind to old classes
-                        pseudo_gt_seg_lx = binarize(int_masks_orig)
-                        pseudo_gt_seg_lx = (self.opts.alpha * pseudo_gt_seg_lx) + \
-                                           ((1-self.opts.alpha) * int_masks_orig)
-
-                        # px_cls_per_image sums up the class activations over pxl space
-                        # (get vectors how much each class is activated in the whole image)
-                        # ignore_mask = (pseudo_gt_seg.sum(1) > 0)
-                        px_cls_per_image = pseudo_gt_seg_lx.view(bs, self.tot_classes, -1).sum(dim=-1)
-                        # batch_weights checks, wether the class activations from above agree with the 1hot labels (for new classes only)
-                        # batch_weight = (batch_size), 1 for the images where new classes are activated according to l1h, 0 else
-                        batch_weight = torch.eq((px_cls_per_image[:, self.old_classes:] > 0),
-                                                l1h[:, self.old_classes - 1:].bool())
-                        batch_weight = (
-                                    batch_weight.sum(dim=1) == (self.tot_classes - self.old_classes)).float()
-
-                        target_old = torch.sigmoid(outputs_old.detach())
-
-                        # target is sigmoid of old_model output for old classes, pseudo_gt_seg_lx for new classes
-                        target = torch.cat((target_old, pseudo_gt_seg_lx[:, self.old_classes:]), dim=1)
-                        # this DOES get called. Sets p(background) to min of old and new models value
-                        # this helps because old model agnostic to new classes -> wrongly put into background
-                        # and because new model might forget about old classes
-                        if self.opts.icarl_bkg == -1:
-                            target[:, 0] = torch.min(target[:, 0], pseudo_gt_seg_lx[:, 0])
-                        else:
-                            target[:, 0] = (1-self.opts.icarl_bkg) * target[:, 0] + \
-                                           self.opts.icarl_bkg * pseudo_gt_seg_lx[:, 0]
-
-                        # thi is the actual segmentation loss
-                        l_seg = F.binary_cross_entropy_with_logits(outputs, target, reduction='none').sum(dim=1)
-                        # this ignores any image where l1h and pseudolabels disagree for new classes
-                        l_seg = self.opts.l_seg * (batch_weight * l_seg).sum() / (batch_weight.sum() + 1e-5)
-                        ### debug
-                        l_seg_new = F.binary_cross_entropy_with_logits(outputs[:, self.old_classes:], target[:, self.old_classes:], reduction='none').sum(dim=1)
-                        l_seg_old = F.binary_cross_entropy_with_logits(outputs[: :self.old_classes], target[: :self.old_classes], reduction='none').sum(dim=1)
-                        l_seg_new = l_seg_new.view(bs, -1).mean(dim=-1)
-                        l_seg_old = l_seg_old.view(bs, -1).mean(dim=-1)
-                        l_seg_new = self.opts.l_seg * (batch_weight * l_seg_new).sum() / (batch_weight.sum() + 1e-5)
-                        l_seg_old = self.opts.l_seg * (batch_weight * l_seg_old).sum() / (batch_weight.sum() + 1e-5)
-                        l_seg2 = l_seg_new + l_seg_old
-                        # PAMR loss
-                        l_cls = balanced_mask_loss_ce(int_masks_raw, pseudo_gt_seg, l1h)
-
-                    loss = l_seg + l_cam_out
-                    l_reg = l_cls + l_cam_int
-
-                # xxx first backprop of previous loss (compute the gradients for regularization methods)
-                loss_tot = loss + lkd + lde + l_icarl + l_reg
-
-            self.scaler.scale(loss_tot).backward()
-            self.scaler.step(optim)
-            if scheduler is not None:
-                scheduler.step()
-            self.scaler.update()
-
-            epoch_loss += loss.item()
-            reg_loss += l_reg.item() if l_reg != 0. else 0.
-            reg_loss += lkd.item() + lde.item() + l_icarl.item()
-            interval_loss += loss.item() + lkd.item() + lde.item() + l_icarl.item()
-            interval_loss += l_reg.item() if l_reg != 0. else 0.
-
-            if tq is not None:
-                tq.update(1)
-                tq.set_postfix(loss='%.3f' % loss, l_reg='%.3f' % l_reg)
-                # if np.isnan(loss.item()):
-                #     raise ValueError("Cls Loss is NaN")
-                # if np.isnan(l_reg.item()):
-                #     raise ValueError("Reg Loss is NaN")
-
-        if tq is not None:
-            tq.close()
-
-        # collect statistics from multiple processes
-        epoch_loss = torch.tensor(epoch_loss).to(self.device)
-        reg_loss = torch.tensor(reg_loss).to(self.device)
-
-        epoch_loss = epoch_loss / len(train_loader)
-        reg_loss = reg_loss / len(train_loader)
-
-        return (epoch_loss, reg_loss)
-
     def train_orig_older(self, cur_epoch, train_loader, print_int=10):
         """Train and return epoch loss"""
         optim = self.optimizer
@@ -769,6 +532,9 @@ class Trainer:
                     rep_bg_mask = torch.zeros_like(outputs.detach())  # initialize background mask as all zero
                     rep_bg_mask[torch.stack([(outputs_old.detach().argmax(dim=1) != 0).to(bool)] * self.tot_classes, dim=1)] = 1  # set background mask to 1 for pixels that are not background
                     rep_bg_mask[rep_mask] = 1  # set background mask to 1 for voc images
+                    if self.opts.mask_post_inp:
+                        inp_mask = (l1h[:, self.old_classes-1:].sum(dim=1) != 0.0).to(bool)  # masks out replay images that do not have new classes (false for old only, true else)
+                        rep_bg_mask[inp_mask] = 1
 
                     # add 1-hot labels for old classes in replay data
                     if self.opts.inpainting_old_od:  # inpaint old classes in all data, use for localizer od loss
@@ -922,16 +688,26 @@ class Trainer:
                             l_seg = l_seg_new + l_seg_old
                         else:
                             # divide into old $ new to allow for comparison
-                            # l_seg = F.binary_cross_entropy_with_logits(outputs, target, reduction='none').sum(dim=1)
-                            # l_seg = l_seg.view(bs, -1).mean(dim=-1)
-                            # l_seg = self.opts.l_seg * (batch_weight * l_seg).sum() / (batch_weight.sum() + 1e-5)
+                            # step 1
+                            l_seg = F.binary_cross_entropy_with_logits(outputs, target, reduction='none').sum(dim=1)
                             l_seg_new = F.binary_cross_entropy_with_logits(outputs[:, self.old_classes:], target[:, self.old_classes:], reduction='none').sum(dim=1)
-                            l_seg_old = F.binary_cross_entropy_with_logits(outputs[: :self.old_classes], target[: :self.old_classes], reduction='none').sum(dim=1)
+                            l_seg_old = F.binary_cross_entropy_with_logits(outputs[:, :self.old_classes], target[:, :self.old_classes], reduction='none').sum(dim=1)
+                            # (2, 32, 32)
+                            flag = (l_seg - (l_seg_old + l_seg_new)).abs().sum()
+                            # step 2
+                            l_seg = l_seg.view(bs, -1).mean(dim=-1)
                             l_seg_new = l_seg_new.view(bs, -1).mean(dim=-1)
                             l_seg_old = l_seg_old.view(bs, -1).mean(dim=-1)
+                            flag = (l_seg - (l_seg_old + l_seg_new)).abs().sum()
+                            # step 3
+                            l_seg = self.opts.l_seg * (batch_weight * l_seg).sum() / (batch_weight.sum() + 1e-5)
                             l_seg_new = self.opts.l_seg * (batch_weight * l_seg_new).sum() / (batch_weight.sum() + 1e-5)
                             l_seg_old = self.opts.l_seg * (batch_weight * l_seg_old).sum() / (batch_weight.sum() + 1e-5)
-                            l_seg = l_seg_new + l_seg_old
+                            flag = (l_seg - (l_seg_old + l_seg_new)).abs().sum()
+                            # step 4
+                            l_seg2 = l_seg_new + l_seg_old
+                            flag = l_seg == l_seg2
+                            BREAKPOINT = 1
 
                         # assuming replay data with mixed classes and all-0 1-hot labels
                         # this trains model to no see new classes -> disable replay
@@ -989,6 +765,68 @@ class Trainer:
         reg_loss = reg_loss / len(train_loader)
 
         return (epoch_loss, reg_loss)
+
+    def inpaint_onehots(self):
+        """Train and return epoch loss"""
+        optim = self.optimizer
+        scheduler = self.scheduler
+        device = self.device
+        model = self.model
+        criterion = self.criterion
+
+        import pickle
+        import os
+        from PIL import Image
+        from dataset import transform
+        _transform = transform.Compose([
+            transform.ToTensor(),
+            transform.Normalize(mean=[0.485, 0.456, 0.406],
+                                std=[0.229, 0.224, 0.225]),
+        ])
+        rep_data_dir = f"{self.opts.replay_root}/{self.opts.task}{'-ov' if self.opts.overlap else ''}"
+
+        model.eval()
+        self.pseudolabeler.eval()
+        print("Inpainting onehots:")
+        with torch.no_grad():
+            for cl_dir in os.listdir(rep_data_dir):
+                if os.path.isdir(f"{rep_data_dir}/{cl_dir}"):
+                    print(f"    {cl_dir}")
+                    with open(f"{rep_data_dir}/{cl_dir}/pseudolabels_1h.pkl", 'rb') as f:
+                        onehots = pickle.load(f)
+                        for img_name in os.listdir(f"{rep_data_dir}/{cl_dir}/images"):
+                            image = Image.open(f"{rep_data_dir}/{cl_dir}/images/{img_name}").convert("RGB")
+                            img = _transform(image).to("cuda", dtype=torch.float32).unsqueeze(0)
+
+                            outputs_old, features_old = self.model_old(img, interpolate=False)
+                            outputs, features = model(img, interpolate=False)
+
+                            int_masks = self.pseudolabeler(features['body']).detach()
+                            int_masks_orig = int_masks.softmax(dim=1)
+                            pseudo_gt_seg_lx = binarize(int_masks_orig)
+                            pseudo_gt_seg_lx = (self.opts.alpha * pseudo_gt_seg_lx) + ((1-self.opts.alpha) * int_masks_orig)
+                            target_old = torch.sigmoid(outputs_old.detach())
+                            target = torch.cat((target_old, pseudo_gt_seg_lx[:, self.old_classes:]), dim=1)
+                            target[:, 0] = torch.min(target[:, 0], pseudo_gt_seg_lx[:, 0])
+
+                            inp_target_old = outputs_old.detach().argmax(dim=1)
+                            inp_target_new = outputs.detach().argmax(dim=1)
+                            inpainted_labels = torch.zeros_like(inp_target_old)
+                            inpainted_labels[inp_target_old > 0] = inp_target_old[inp_target_old > 0]
+                            new_spotted_mask = torch.zeros_like(inpainted_labels)
+                            new_spotted_mask[(inp_target_old == 0) & (inp_target_new >= self.old_classes) & (inp_target_new == target.argmax(dim=1))] = 1
+                            inpainted_labels[new_spotted_mask.to(bool)] = inp_target_new[new_spotted_mask.to(bool)]
+                            uniques, counts = torch.unique(inpainted_labels, return_counts=True)
+                            num_pixels = np.prod(inpainted_labels.shape)
+                            counts = counts[uniques >= self.old_classes]
+                            uniques = uniques[uniques >= self.old_classes]
+                            for i, unq in enumerate(uniques):
+                                if counts[i] >= num_pixels * self.opts.inpainting_threshold:
+                                    onehots[f"{img_name[:-4]}.png"][unq - 1] = 1
+                    # with open(f"{rep_data_dir}/{cl_dir}/inpainted_pseudolabels_1h.pkl", 'wb') as f:
+                    #     pickle.dump(onehots, f)
+        model.train()
+        self.pseudolabeler.train()
 
     def validate(self, loader, metrics):
         """Do validation and return specified samples"""
@@ -1129,12 +967,15 @@ def set_options(opts):
     opts.replay_root = "replay_data_lora"
     opts.step_ckpt = "checkpoints/step/voc-10-10-ov/Base_0.pth"
     opts.ckpt = "checkpoints/step/voc-10-10-ov/Incr_Gen_Lora_Pre_Inp_RR_1_epoch_20.pth"
+    # opts.ckpt = "checkpoints/step/voc-10-10-ov/Incr_Gen_Lora_Inp_ODInp_RR_1_epoch_40.pth"
     # opts.ckpt = "checkpoints/step/voc-10-10-ov/Incr_Gen_VOC_RR_1.pth"
     # opts.ckpt = "checkpoints/step/voc-10-10-ov/Incr_Gen_Base_RR_1.pth"
     opts.replay_ratio = 1.0  # GEN DATA ONLY
     opts.replay_ratio = None
     opts.inpainting_old = False
+    opts.mask_post_inp = True
     opts.mask_pre_inp = False
+    opts.inpainting_threshold = 0.1
     # opts.inpainting = True
     opts.inpainting = False
     opts.mask_replay = False
@@ -1164,9 +1005,7 @@ if __name__ == "__main__":
     opts = set_options(opts)
 
     # preparing dataset
-    train_dst, pretrain_dst, val_dst, test_dst, labels, n_classes = get_dataset(opts)
-    pretrain_loader = data.DataLoader(pretrain_dst, batch_size=opts.batch_size,
-                                      num_workers=opts.num_workers, drop_last=True)
+    train_dst, val_dst, test_dst, labels, n_classes = get_dataset(opts)
     train_loader = data.DataLoader(train_dst, batch_size=opts.batch_size,
                                    sampler=InterleaveSampler(train_dst, batch_size=opts.batch_size),
                                    num_workers=opts.num_workers, drop_last=True)
@@ -1194,11 +1033,15 @@ if __name__ == "__main__":
     trainer.load_step_ckpt(opts.step_ckpt)
     if opts.ckpt is not None:
         cur_epoch, best_score = trainer.load_ckpt(opts.ckpt)
+        print(cur_epoch)
 
     # update train set
     # train_dst.update_pseudolabels()
 
     # train
+
+    # trainer.inpaint_onehots()
+
     trainer.train_orig(12, train_loader)
     # for epoch in [0, 4, 8, 12]:
     #     trainer.train(epoch, train_loader)

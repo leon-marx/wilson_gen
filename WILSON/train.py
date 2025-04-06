@@ -242,7 +242,7 @@ class Trainer:
                         l1h_inp_od = l1h.clone()
                         for i, old_output in enumerate(outputs_old.detach()):
                             uniques = torch.unique(old_output.argmax(dim=0)).cpu()
-                            uniques = uniques[(uniques > 0) & (uniques <= self.old_classes)]
+                            uniques = uniques[(uniques > 0) & (uniques < self.old_classes)]
                             l1h_inp_od[i][uniques - 1] = 1.0
                             if self.opts.inpainting_old:  # additionally use old class inpaintings for other losses
                                 l1h[i][uniques - 1] = 1.0
@@ -379,7 +379,7 @@ class Trainer:
                             # l_seg = l_seg.view(bs, -1).mean(dim=-1)
                             # l_seg = self.opts.l_seg * (batch_weight * l_seg).sum() / (batch_weight.sum() + 1e-5)
                             l_seg_new = F.binary_cross_entropy_with_logits(outputs[:, self.old_classes:], target[:, self.old_classes:], reduction='none').sum(dim=1)
-                            l_seg_old = F.binary_cross_entropy_with_logits(outputs[: :self.old_classes], target[: :self.old_classes], reduction='none').sum(dim=1)
+                            l_seg_old = F.binary_cross_entropy_with_logits(outputs[:, :self.old_classes], target[:, :self.old_classes], reduction='none').sum(dim=1)
                             l_seg_new = l_seg_new.view(bs, -1).mean(dim=-1)
                             l_seg_old = l_seg_old.view(bs, -1).mean(dim=-1)
                             l_seg_new = self.opts.l_seg * (batch_weight * l_seg_new).sum() / (batch_weight.sum() + 1e-5)
@@ -471,6 +471,65 @@ class Trainer:
             logger.add_scalar("loss_detailed/l_cls", l_cls_tot / len(train_loader), cur_epoch)
 
         return (epoch_loss, reg_loss)
+
+    def inpaint_onehots(self):
+        """Train and return epoch loss"""
+        optim = self.optimizer
+        scheduler = self.scheduler
+        device = self.device
+        model = self.model
+        criterion = self.criterion
+
+        import pickle
+        import os
+        from PIL import Image
+        from dataset import transform
+        _transform = transform.Compose([
+            transform.ToTensor(),
+            transform.Normalize(mean=[0.485, 0.456, 0.406],
+                                std=[0.229, 0.224, 0.225]),
+        ])
+        rep_data_dir = f"{self.opts.replay_root}/{self.opts.task}{'-ov' if self.opts.overlap else ''}"
+
+        model.eval()
+        self.pseudolabeler.eval()
+        print("Inpainting onehots:")
+        with torch.no_grad():
+            for cl_dir in os.listdir(rep_data_dir):
+                if os.path.isdir(f"{rep_data_dir}/{cl_dir}"):
+                    print(f"    {cl_dir}")
+                    with open(f"{rep_data_dir}/{cl_dir}/pseudolabels_1h.pkl", 'rb') as f:
+                        onehots = pickle.load(f)
+                        for img_name in os.listdir(f"{rep_data_dir}/{cl_dir}/images"):
+                            img = Image.open(f"{rep_data_dir}/{cl_dir}/images/{img_name}").convert("RGB")
+                            img = _transform(img).to("cuda", dtype=torch.float32).unsqueeze(0)
+
+                            outputs_old, features_old = self.model_old(img, interpolate=False)
+                            outputs, features = model(img, interpolate=False)
+
+                            int_masks = self.pseudolabeler(features['body']).detach()
+                            int_masks_orig = int_masks.softmax(dim=1)
+                            pseudo_gt_seg_lx = binarize(int_masks_orig)
+                            pseudo_gt_seg_lx = (self.opts.alpha * pseudo_gt_seg_lx) + ((1-self.opts.alpha) * int_masks_orig)
+                            target_old = torch.sigmoid(outputs_old.detach())
+                            target = torch.cat((target_old, pseudo_gt_seg_lx[:, self.old_classes:]), dim=1)
+                            target[:, 0] = torch.min(target[:, 0], pseudo_gt_seg_lx[:, 0])
+
+                            inp_target_old = outputs_old.detach().argmax(dim=1)
+                            inp_target_new = outputs.detach().argmax(dim=1)
+                            inpainted_labels = torch.zeros_like(inp_target_old)
+                            inpainted_labels[inp_target_old > 0] = inp_target_old[inp_target_old > 0]
+                            new_spotted_mask = torch.zeros_like(inpainted_labels)
+                            new_spotted_mask[(inp_target_old == 0) & (inp_target_new >= self.old_classes) & (inp_target_new == target.argmax(dim=1))] = 1
+                            inpainted_labels[new_spotted_mask.to(bool)] = inp_target_new[new_spotted_mask.to(bool)]
+                            uniques = torch.unique(inpainted_labels)
+                            uniques = uniques[uniques >= self.old_classes]
+                            for i in uniques:
+                                onehots[f"{img_name[:-4]}.png"][i - 1] = 1
+                    with open(f"{rep_data_dir}/{cl_dir}/inpainted_pseudolabels_1h.pkl", 'wb') as f:
+                        pickle.dump(onehots, f)
+        model.train()
+        self.pseudolabeler.train()
 
     def validate(self, loader, metrics):
         """Do validation and return specified samples"""

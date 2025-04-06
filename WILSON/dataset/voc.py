@@ -140,7 +140,6 @@ class VOCGenSegmentation(data.Dataset):
                  replay_root,
                  replay_ratio,
                  replay_size,
-                 inpainting,
                  task,
                  overlap,
                  train=True,
@@ -202,7 +201,6 @@ class VOCGenSegmentation(data.Dataset):
         self.old_classes = old_classes
         self.task = task
         self.ov_string = ov_string
-        self.inpainting = inpainting
         self.img_names = {}
         for old_class in old_classes:
             if replay_size is not None:
@@ -220,7 +218,6 @@ class VOCGenSegmentation(data.Dataset):
             self.replay_1h_lbls += [pseudolabels_1h[img_name[:-4] + ".png"] for img_name in img_names]
 
     def update_pseudolabels(self):
-        assert self.inpainting, "This function is only for knowledge inpainting"
         self.replay_1h_lbls = []
         for old_class in self.old_classes:
             with open(os.path.join(self.replay_root, f"{self.task}{self.ov_string}", old_class, f"inpainted_pseudolabels_1h.pkl"), "rb") as f:
@@ -264,7 +261,6 @@ class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
                  replay_root,
                  replay_ratio,
                  replay_size,
-                 inpainting,
                  step_dict,
                  task,
                  train=True,
@@ -279,7 +275,6 @@ class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
         self.replay_root = replay_root
         self.replay_ratio = replay_ratio
         self.replay_size = replay_size
-        self.inpainting = inpainting
         self.task = task
         self.overlap = overlap
         super().__init__(root=root,
@@ -295,7 +290,7 @@ class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
             pseudo=pseudo)
 
     def make_dataset(self, root, train, indices, saliency=False, pseudo=None):
-        full_voc = VOCGenSegmentation(root=root, replay_root=self.replay_root, replay_ratio=self.replay_ratio, replay_size=self.replay_size, inpainting=self.inpainting, task=self.task, overlap=self.overlap, train=train, transform=None, indices=indices, saliency=saliency, pseudo=pseudo)
+        full_voc = VOCGenSegmentation(root=root, replay_root=self.replay_root, replay_ratio=self.replay_ratio, replay_size=self.replay_size, task=self.task, overlap=self.overlap, train=train, transform=None, indices=indices, saliency=saliency, pseudo=pseudo)
         self.full_voc = full_voc
         self.num_voc = self.full_voc.num_voc
         return self.full_voc

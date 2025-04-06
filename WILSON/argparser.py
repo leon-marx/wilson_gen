@@ -197,8 +197,6 @@ def get_argparser():
                         help="fraction of replay images to use, None for all")
     parser.add_argument("--replay_size", default=None, type=int,
                         help="how many replay images per image in voc and per class")
-    parser.add_argument("--inpainting", action="store_true", default=False,
-                        help="whether to use knowledge inpainting to detect new classes in replay data (together with inpainting_old_od also for pascal data)")
     parser.add_argument("--inpainting_old", action="store_true", default=False,
                         help="whether to use old model to assign 1-hot labels for old classes in replay data")
     parser.add_argument("--inpainting_old_od", action="store_true", default=False,
@@ -217,6 +215,8 @@ def get_argparser():
                         help="whether to mask out some replay data in loss calculation")
     parser.add_argument("--mask_pre_inp", action="store_true", default=False,
                         help="applies masking for the pre-ipainting period. Replay images are only considered where the old model does not see background")
+    parser.add_argument("--inpainting_epoch", default=-1, type=int,
+                        help="When to start inpainting onehots for replay data. -1 for no inpainting")
 
 
 
