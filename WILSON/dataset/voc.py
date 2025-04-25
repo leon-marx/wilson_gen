@@ -4,6 +4,8 @@ from .dataset import IncrementalSegmentationDataset
 import numpy as np
 import pickle
 from PIL import Image
+import tasks as task_config
+
 
 classes = {
     0: 'background',
@@ -142,6 +144,7 @@ class VOCGenSegmentation(data.Dataset):
                  replay_size,
                  task,
                  overlap,
+                 step,
                  train=True,
                  transform=None,
                  indices=None,
@@ -188,10 +191,8 @@ class VOCGenSegmentation(data.Dataset):
 
         # Replay
         ov_string = "-ov" if overlap else ""
-        if task == "10-10":
-            old_classes = [classes[i] for i in range(1, 11, 1)]
-        elif task == "15-5":
-            old_classes = [classes[i] for i in range(1, 16, 1)]
+        max_old_class = max(task_config.tasks["voc"][task][step-1])
+        old_classes = [classes[i] for i in range(1, max_old_class+1, 1)]
         self.num_voc = len(self.indices)
         self.replay_root = replay_root
         self.replay_images = []
@@ -277,6 +278,7 @@ class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
         self.replay_size = replay_size
         self.task = task
         self.overlap = overlap
+        self.step = step
         super().__init__(root=root,
             step_dict=step_dict,
             train=train,
@@ -290,7 +292,7 @@ class VOCGenSegmentationIncremental(IncrementalSegmentationDataset):
             pseudo=pseudo)
 
     def make_dataset(self, root, train, indices, saliency=False, pseudo=None):
-        full_voc = VOCGenSegmentation(root=root, replay_root=self.replay_root, replay_ratio=self.replay_ratio, replay_size=self.replay_size, task=self.task, overlap=self.overlap, train=train, transform=None, indices=indices, saliency=saliency, pseudo=pseudo)
+        full_voc = VOCGenSegmentation(root=root, replay_root=self.replay_root, replay_ratio=self.replay_ratio, replay_size=self.replay_size, task=self.task, overlap=self.overlap, step=self.step, train=train, transform=None, indices=indices, saliency=saliency, pseudo=pseudo)
         self.full_voc = full_voc
         self.num_voc = self.full_voc.num_voc
         return self.full_voc

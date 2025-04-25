@@ -1,6 +1,6 @@
 import argparser
 import os
-from utils.logger import WandBLogger
+from utils.logger import DummyLogger
 from torch.utils.data.distributed import DistributedSampler
 from sampler import InterleaveSampler
 
@@ -30,7 +30,8 @@ def save_ckpt(path, trainer, epoch, best_score):
     if trainer.pseudolabeler is not None:
         state["pseudolabeler"] = trainer.pseudolabeler.state_dict()
 
-    torch.save(state, path)
+    # torch.save(state, path)
+    print("The model would have been saved here, uncomment the line in save_ckpt() to enable")
 
 
 def main(opts):
@@ -45,7 +46,7 @@ def main(opts):
     if opts.overlap and opts.dataset == 'voc':
         task_name += "-ov"
     logdir_full = f"{opts.logdir}/{task_name}/{opts.name}/"
-    logger = WandBLogger(logdir_full, rank=rank, debug=opts.debug, summary=opts.visualize, step=opts.step,
+    logger = DummyLogger(logdir_full, rank=rank, debug=opts.debug, summary=opts.visualize, step=opts.step,
                          name=f"{task_name}_{opts.name}")
 
     ckpt_path = f"checkpoints/step/{task_name}/{opts.name}_{opts.step}.pth"
@@ -234,7 +235,7 @@ def main(opts):
                                   sampler=DistributedSampler(test_dst, num_replicas=world_size, rank=rank),
                                   num_workers=opts.num_workers)
 
-    val_score = trainer.validate(loader=test_loader, metrics=val_metrics, test=True)
+    val_score = trainer.validate(loader=test_loader, metrics=val_metrics)
     logger.info(f"*** End of Test")
     logger.info(val_metrics.to_str(val_score))
     logger.add_table("Test/Class_IoU", val_score['Class IoU'])
@@ -250,10 +251,6 @@ def main(opts):
     logger.add_scalar("Test/MeanIoU_Bkg", val_score['Mean IoU Bkg'], opts.step)
     logger.add_scalar("Test/MeanIoU_Old", val_score['Mean IoU Old'], opts.step)
     logger.add_scalar("Test/MeanIoU_New", val_score['Mean IoU New'], opts.step)
-    logger.add_scalar("Final/MeanIoU_Bkg", val_score['Final Mean IoU Bkg'], no_step=True)
-    logger.add_scalar("Final/MeanIoU_Dense", val_score['Final Mean IoU Dense'], no_step=True)
-    logger.add_scalar("Final/MeanIoU_Incr", val_score['Final Mean IoU Incr'], no_step=True)
-    logger.add_scalar("Final/MeanIoU_All", val_score['Final Mean IoU All'], no_step=True)
     logger.add_scalar("Test/MeanAcc", val_score['Mean Acc'], opts.step)
     logger.commit()
 
@@ -270,37 +267,45 @@ if __name__ == '__main__':
     os.makedirs("checkpoints/step", exist_ok=True)
 
     #region Debugging Parameters
-    # os.chdir("WILSON")
-    # os.environ["RANK"] = "0"
-    # os.environ["LOCAL_RANK"] = "0"
-    # os.environ["WORLD_SIZE"] = "1"
-    # os.environ["MASTER_ADDR"] = "localhost"
-    # import get_free_port
-    # start_port = random.choice(list(range(1994, 2994)))
-    # port = get_free_port.next_free_port(port=start_port)
-    # os.environ["MASTER_PORT"] = str(port)
-    # opts.num_workers = 4
-    # opts.sample_num = 8
-    # opts.overlap = False
-    # opts.dataset = "voc"
-    # opts.epochs = 40
-    # opts.task = "10-10"
-    # opts.lr = 0.001
-    # opts.batch_size = 24
-    # opts.val_interval = 2
-    # opts.replay_root = "replay_data_mrte"
-    # opts.step_ckpt = "checkpoints/step/voc-10-10/Base_0.pth"
-    # opts.name = "Incr_Gen_MRTE_RR"
+    os.chdir("WILSON")
+    os.environ["RANK"] = "0"
+    os.environ["LOCAL_RANK"] = "0"
+    os.environ["WORLD_SIZE"] = "1"
+    os.environ["MASTER_ADDR"] = "localhost"
+    import get_free_port
+    start_port = random.choice(list(range(1994, 2994)))
+    port = get_free_port.next_free_port(port=start_port)
+    os.environ["MASTER_PORT"] = str(port)
+    opts.num_workers = 4
+    opts.sample_num = 8
+    opts.dataset = "voc"
+    opts.lr = 0.001
+    opts.batch_size = 24
+    opts.val_interval = 2
+    opts.random_seed = 7
+    ########## overall settings:
+    opts.name = "DEBUGGING"
+    opts.overlap = False
+    opts.task = "10-5"
+    ########## base step:
+    opts.step = 0
+    opts.epochs = 30
+    opts.lr_init=0.01
+    opts.bce = True
+    ########## incr step:
     # opts.step = 1
+    # opts.epochs = 40
+    # opts.step_ckpt = "checkpoints/step/voc-10-10/Base_0.pth"
     # opts.weakly = True
     # opts.alpha = 0.5
     # opts.loss_de = 1
     # opts.lr_policy = "warmup"
     # opts.affinity = True
+    ########## replay settings:
+    # opts.replay_root = "replay_data_mrte"
     # opts.replay = True
-    # # opts.replay_ratio = None
+    # opts.replay_ratio = None
     # opts.replay_size = 1
-    # opts.random_seed = 7
     #endregion Debugging Parameters
 
     opts = argparser.modify_command_options(opts)

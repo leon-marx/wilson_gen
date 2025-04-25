@@ -51,6 +51,15 @@ class StreamSegMetrics(_StreamMetrics):
         string = "\n"
         ignore = ["Class IoU", "Class Acc", "Class Prec", "Agg",
                   "Confusion Matrix Pred", "Confusion Matrix", "Confusion Matrix Text"]
+        if results["Mean IoU Bkg"] == "X":
+            ignore.append("Mean IoU Bkg")
+            ignore.append("Mean IoU Old")
+            ignore.append("Mean IoU New")
+        if results["Final Mean IoU Bkg"] == "X":
+            ignore.append("Final Mean IoU Bkg")
+            ignore.append("Final Mean IoU Dense")
+            ignore.append("Final Mean IoU Incr")
+            ignore.append("Final Mean IoU All")
         for k, v in results.items():
             if k not in ignore:
                 string += "%s: %f\n" % (k, v)
@@ -73,7 +82,7 @@ class StreamSegMetrics(_StreamMetrics):
         ).reshape(self.n_classes, self.n_classes)
         return hist
 
-    def get_results(self):
+    def get_results(self, final_test=False, n_dense_classes=None):
         """Returns accuracy score evaluation result.
             - overall accuracy
             - mean accuracy
@@ -97,6 +106,11 @@ class StreamSegMetrics(_StreamMetrics):
         mean_iu_bkg = np.mean(iu[:1]) if self.n_old_classes is not None else "X"
         mean_iu_old = np.mean(iu[1:self.n_old_classes]) if self.n_old_classes is not None else "X"
         mean_iu_new = np.mean(iu[self.n_old_classes:]) if self.n_old_classes is not None else "X"
+        # prepare metrics for final performance test
+        final_test_mean_iu_bkg = np.mean(iu[:1]) if final_test else "X"
+        final_test_mean_iu_dense = np.mean(iu[1:n_dense_classes]) if final_test else "X"
+        final_test_mean_iu_incr = np.mean(iu[n_dense_classes:]) if final_test else "X"
+        final_test_mean_iu_all = np.mean(iu) if final_test else "X"
         freq = hist.sum(axis=1) / hist.sum()
         fwavacc = (freq[freq > 0] * iu[freq > 0]).sum()
 
@@ -115,6 +129,10 @@ class StreamSegMetrics(_StreamMetrics):
                 "Mean IoU Bkg": mean_iu_bkg,
                 "Mean IoU Old": mean_iu_old,
                 "Mean IoU New": mean_iu_new,
+                "Final Mean IoU Bkg": final_test_mean_iu_bkg,
+                "Final Mean IoU Dense": final_test_mean_iu_dense,
+                "Final Mean IoU Incr": final_test_mean_iu_incr,
+                "Final Mean IoU All": final_test_mean_iu_all,
                 "Class Acc": cls_acc,
                 "Class Prec": cls_prec,
                 "Agg": [mean_iu, acc_cls, precision_cls],

@@ -8,6 +8,8 @@ from PIL import Image
 from dataset import transform
 from tqdm import tqdm
 
+raise NotImplementedError("This script is deprecated and should not be used. Use scripts/make_dataset_hf.py instead.")
+
 _transform = transform.Compose([
     # transform.Resize(size=512),  # Not necessary, gen_imgs are 512x512 already
     # transform.CenterCrop(size=512),

@@ -35,16 +35,22 @@ class WandBLogger:
             wandb.finish()
 
     # Functions for WandB
-    def _log(self, tag, value, step=None, intermediate=False):
+    def _log(self, tag, value, step=None, intermediate=False, no_step=False):
         if self.is_not_none():
             if intermediate:
                 if "iteration" not in self.state_int and step is not None:
                     self.state_int["iteration"] = step
-                self.state_int[self._transform_tag(tag)] = value
+                if no_step:
+                    self.state_int[tag] = value
+                else:
+                    self.state_int[self._transform_tag(tag)] = value
             else:
                 if "epoch" not in self.state and step is not None:
                     self.state["epoch"] = step
-                self.state[self._transform_tag(tag)] = value
+                if no_step:
+                    self.state[tag] = value
+                else:
+                    self.state[self._transform_tag(tag)] = value
 
     def commit(self, intermediate=False):
         if self.is_not_none():
@@ -59,8 +65,8 @@ class WandBLogger:
         if self.is_not_none():
             wandb.config.update(vars(opts))
 
-    def add_scalar(self, tag, scalar_value, step=None, intermediate=False):
-        self._log(tag, scalar_value, step, intermediate)
+    def add_scalar(self, tag, scalar_value, step=None, intermediate=False, no_step=False):
+        self._log(tag, scalar_value, step, intermediate, no_step)
 
     def add_image(self, tag, image, step=None, intermediate=False):
         self._log(tag, wandb.Image(image.transpose(1, 2, 0)), step, intermediate)
@@ -126,6 +132,104 @@ class WandBLogger:
             row = ",".join(text) + "\n"
             with open(path, "a") as file:
                 file.write(row)
+
+
+class DummyLogger:
+    def __init__(self, logdir, rank, debug=False, filename=None, summary=True, step=None, name=None):
+        self.logger = None
+        self.rank = rank
+        self.step = step
+        self.logdir_results = os.path.join("logs", "results")
+        self.use_logger = summary and rank == 0
+
+        self.debug_flag = debug
+
+        if rank == 0:
+            print(f"[!] starting logging with name {logdir}")
+            # self.logger = wandb.init(project="WILSON", name=name)
+            if self.debug_flag:
+                print(f"[!] Entering DEBUG mode")
+            self.state = {}
+            self.state_int = {}
+
+    def _transform_tag(self, tag):
+        tag = tag + f"/{self.step}" if self.step is not None else tag
+        return tag
+
+    def is_not_none(self):
+        return self.use_logger
+
+    def close(self):
+        if self.is_not_none():
+            print("closed logger")
+
+    # Functions for WandB
+    def _log(self, tag, value, step=None, intermediate=False, no_step=False):
+        if self.is_not_none():
+            if intermediate:
+                if "iteration" not in self.state_int and step is not None:
+                    self.state_int["iteration"] = step
+                self.state_int[self._transform_tag(tag)] = value
+            else:
+                if "epoch" not in self.state and step is not None:
+                    self.state["epoch"] = step
+                self.state[self._transform_tag(tag)] = value
+
+    def commit(self, intermediate=False):
+        if self.is_not_none():
+            if intermediate:
+                print(self.state_int)
+                self.state_int = {}
+            else:
+                print(self.state)
+                self.state = {}
+
+    def add_config(self, opts):
+        if self.is_not_none():
+            pass
+
+    def add_scalar(self, tag, scalar_value, step=None, intermediate=False, no_step=False):
+        pass
+
+    def add_image(self, tag, image, step=None, intermediate=False):
+        pass
+
+    def add_figure(self, tag, image, step=None, intermediate=False):
+        pass
+
+    def add_table(self, tag, tbl, step=None):
+        if self.is_not_none():
+            pass
+
+    # def add_results(self, results):
+    #     if self.is_not_none():
+    #         columns = ["Class"] + [f"{x}" for x in range(len(results.values()[0]))]
+    #         data = [[k]+[str(x) for x in v.values()] for k, v in results.items()]
+    #         my_table = wandb.Table(columns=columns, data=data)
+    #         self._log("Results", my_table, None, False)
+
+    # Functions for console
+    def print(self, msg):
+        print(msg)
+
+    def info(self, msg):
+        if self.rank == 0:
+            print(msg)
+
+    def debug(self, msg):
+        if self.rank == 0 and self.debug_flag:
+            print(msg)
+
+    def error(self, msg):
+        print(msg)
+
+    # Functions for files
+    def log_results(self, task, name, results):
+        if self.rank == 0:
+            pass
+    def log_aggregates(self, task, name, results):
+        if self.rank == 0:
+            pass
 
 
 class Logger:

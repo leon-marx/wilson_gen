@@ -55,7 +55,6 @@ def get_dataset(opts):
     if not os.path.exists(path_base):
         os.makedirs(path_base, exist_ok=True)
 
-    pretrain_dst = None
     if opts.replay:
         train_dst = VOCGenSegmentationIncremental(root=opts.data_root, replay_root=opts.replay_root, replay_ratio=opts.replay_ratio,
                                                 replay_size=opts.replay_size,

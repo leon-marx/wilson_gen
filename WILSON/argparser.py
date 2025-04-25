@@ -215,8 +215,12 @@ def get_argparser():
                         help="whether to mask out some replay data in loss calculation")
     parser.add_argument("--mask_pre_inp", action="store_true", default=False,
                         help="applies masking for the pre-ipainting period. Replay images are only considered where the old model does not see background")
+    parser.add_argument("--mask_post_inp", action="store_true", default=False,
+                        help="After inpainting replay images without new labels are only considered where the old model does not see background")
     parser.add_argument("--inpainting_epoch", default=-1, type=int,
                         help="When to start inpainting onehots for replay data. -1 for no inpainting")
+    parser.add_argument("--inpainting_threshold", default=0.0, type=float,
+                        help="fraction of pixels associated to a class in order to add it to image-level pseudolabels")
 
 
 

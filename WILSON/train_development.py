@@ -1036,7 +1036,7 @@ if __name__ == "__main__":
         print(cur_epoch)
 
     # update train set
-    # train_dst.update_pseudolabels()
+    train_dst.update_pseudolabels()
 
     # train
 

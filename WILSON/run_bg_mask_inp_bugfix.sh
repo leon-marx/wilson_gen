@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Repeat older runs that suffered from the [: :] -> [:, :] bug (the latter is correct)
+
 port=$(python get_free_port.py)
 echo ${port}
 alias exp='torchrun --nproc_per_node=1 --master_port ${port} run.py --num_workers 4 --sample_num 8'

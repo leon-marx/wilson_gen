@@ -28,6 +28,8 @@ class Trainer:
         self.scaler = amp.GradScaler()
 
         self.classes = classes = tasks.get_per_task_classes(opts.dataset, opts.task, opts.step)
+        self.final_step = list(tasks.tasks[opts.dataset][opts.task].keys())[-1]
+        self.n_dense_classes = len(tasks.tasks[opts.dataset][opts.task][0])
 
         if classes is not None:
             new_classes = classes[-1]
@@ -236,6 +238,10 @@ class Trainer:
                     rep_bg_mask = torch.zeros_like(outputs.detach())
                     rep_bg_mask[torch.stack([(outputs_old.detach().argmax(dim=1) != 0).to(bool)] * self.tot_classes, dim=1)] = 1
                     rep_bg_mask[rep_mask] = 1
+                    if self.opts.mask_post_inp:
+                        # some voc images have labels all 0, but l1h not all 0. These images got masked out using mask_pre_inp, but will not be masked out with this
+                        inp_mask = (l1h[:, self.old_classes-1:].sum(dim=1) != 0.0).to(bool)  # masks out replay images that do not have new classes (false for old only, true else)
+                        rep_bg_mask[inp_mask] = 1
 
                     # add 1-hot labels for old classes in replay data
                     if self.opts.inpainting_old_od:  # inpaint old classes in all data, use for localizer od loss
@@ -262,7 +268,7 @@ class Trainer:
                     if self.opts.no_mask | self.opts.inpainting_old_od:
                         if self.opts.mask_replay_l_cam_new:
                             l_cam_new = bce_loss(int_masks_raw[rep_mask], l1h_inp_od[rep_mask], mode=self.opts.cam, reduction='mean')
-                        elif self.opts.mask_pre_inp:
+                        elif self.opts.mask_pre_inp | self.opts.mask_post_inp:
                             l_cam_new = bce_loss_bg_mask(int_masks_raw, l1h_inp_od,
                                                 rep_bg_mask, mode=self.opts.cam, reduction='mean')
                         else:
@@ -274,7 +280,7 @@ class Trainer:
                         if self.opts.mask_replay_l_cam_new:
                             l_cam_new = bce_loss(int_masks_raw[rep_mask], l1h[rep_mask, self.old_classes - 1:],
                                                 mode=self.opts.cam, reduction='mean')
-                        elif self.opts.mask_pre_inp:
+                        elif self.opts.mask_pre_inp | self.opts.mask_post_inp:
                             l_cam_new = bce_loss_bg_mask(int_masks_raw, l1h[:, self.old_classes - 1:],
                                                 rep_bg_mask, mode=self.opts.cam, reduction='mean')
                         else:
@@ -290,7 +296,7 @@ class Trainer:
                                                                    torch.sigmoid(outputs_old)[rep_mask],
                                                                    reduction='none',
                                                                    )).mean()
-                    elif self.opts.mask_pre_inp:
+                    elif self.opts.mask_pre_inp | self.opts.mask_post_inp:
                         l_loc = (F.binary_cross_entropy_with_logits(int_masks_raw[:, :self.old_classes],
                                                                    torch.sigmoid(outputs_old),
                                                                    reduction='none',
@@ -363,7 +369,7 @@ class Trainer:
                             l_seg_new = self.opts.l_seg * (batch_weight[rep_mask] * l_seg_new).sum() / (batch_weight[rep_mask].sum() + 1e-5)
                             l_seg_old = self.opts.l_seg * l_seg_old.sum() / (bs + 1e-5)
                             l_seg = l_seg_new + l_seg_old
-                        elif self.opts.mask_pre_inp:
+                        elif self.opts.mask_pre_inp | self.opts.mask_post_inp:
                             l_seg_new = F.binary_cross_entropy_with_logits(outputs[:, self.old_classes:], target[:, self.old_classes:], reduction='none')
                             l_seg_old = F.binary_cross_entropy_with_logits(outputs[:, :self.old_classes], target[:, :self.old_classes], reduction='none')
                             l_seg_new = (l_seg_new * rep_bg_mask[:, self.old_classes:]).sum(dim=1)
@@ -390,7 +396,7 @@ class Trainer:
                         # this trains model to no see new classes -> disable replay
                         if self.opts.mask_replay_l_cls:
                             l_cls = balanced_mask_loss_ce(int_masks_raw[rep_mask], pseudo_gt_seg[rep_mask], l1h[rep_mask])
-                        elif self.opts.mask_pre_inp:
+                        elif self.opts.mask_pre_inp | self.opts.mask_post_inp:
                             l_cls = balanced_mask_loss_ce_bg_mask(int_masks_raw, pseudo_gt_seg, l1h, rep_bg_mask[:, 0])
                         else:
                             l_cls = balanced_mask_loss_ce(int_masks_raw, pseudo_gt_seg, l1h)
@@ -473,12 +479,8 @@ class Trainer:
         return (epoch_loss, reg_loss)
 
     def inpaint_onehots(self):
-        """Train and return epoch loss"""
-        optim = self.optimizer
-        scheduler = self.scheduler
-        device = self.device
+        """Knowledge inpainting of image-level pseudolabels for current classes using current model"""
         model = self.model
-        criterion = self.criterion
 
         import pickle
         import os
@@ -522,16 +524,19 @@ class Trainer:
                             new_spotted_mask = torch.zeros_like(inpainted_labels)
                             new_spotted_mask[(inp_target_old == 0) & (inp_target_new >= self.old_classes) & (inp_target_new == target.argmax(dim=1))] = 1
                             inpainted_labels[new_spotted_mask.to(bool)] = inp_target_new[new_spotted_mask.to(bool)]
-                            uniques = torch.unique(inpainted_labels)
+                            uniques, counts = torch.unique(inpainted_labels, return_counts=True)
+                            num_pixels = np.prod(inpainted_labels.shape)
+                            counts = counts[uniques >= self.old_classes]
                             uniques = uniques[uniques >= self.old_classes]
-                            for i in uniques:
-                                onehots[f"{img_name[:-4]}.png"][i - 1] = 1
+                            for i, unq in enumerate(uniques):
+                                if counts[i] >= num_pixels * self.opts.inpainting_threshold:
+                                    onehots[f"{img_name[:-4]}.png"][unq - 1] = 1
                     with open(f"{rep_data_dir}/{cl_dir}/inpainted_pseudolabels_1h.pkl", 'wb') as f:
                         pickle.dump(onehots, f)
         model.train()
         self.pseudolabeler.train()
 
-    def validate(self, loader, metrics):
+    def validate(self, loader, metrics, test=False):
         """Do validation and return specified samples"""
         metrics.reset()
         model = self.model
@@ -559,7 +564,10 @@ class Trainer:
 
             # collect statistics from multiple processes
             metrics.synch(device)
-            score = metrics.get_results()
+            if test and (self.opts.step == self.final_step):
+                score = metrics.get_results(final_test=True, n_dense_classes=self.n_dense_classes)
+            else:
+                score = metrics.get_results()
 
         return score
 

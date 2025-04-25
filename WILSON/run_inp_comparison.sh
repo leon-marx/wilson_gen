@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Run various inpainting and masking experiments with proper background masking (not the naive one from earlier)
+
 port=$(python get_free_port.py)
 echo ${port}
 alias exp='torchrun --nproc_per_node=1 --master_port ${port} run.py --num_workers 4 --sample_num 8'
