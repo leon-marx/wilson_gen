@@ -180,4 +180,5 @@ stablediffusion/checkpoints/
 # LoRA-related files
 hugface/wandb/
 hugface/voc_lora*
+hugface/multistep_voc_lora*
 hugface/best_lora*

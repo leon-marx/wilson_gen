@@ -396,6 +396,12 @@ def repeat_bad_images(replay_root, task_and_ov, bad_images, prompt, repeat, img_
 
 
 if __name__ == "__main__":
+    print("WARNING: This script is deprecated and works only for 1-step incremental tasks like 10-10!")
+    print("For other tasks (or comparability of 1-step tasks), use make_dataset_multistep.py!")
+    cont = input("Are you sure you want to continue? (y/n): ")
+    if cont != "y":
+        print("Exiting...")
+        exit(0)
     prompt = "<BASE>"
 
     task = "10-10"

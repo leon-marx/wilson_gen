@@ -496,14 +496,18 @@ class Trainer:
         model.eval()
         self.pseudolabeler.eval()
         print("Inpainting onehots:")
-        with torch.no_grad():
-            for cl_dir in os.listdir(rep_data_dir):
-                if os.path.isdir(f"{rep_data_dir}/{cl_dir}"):
-                    print(f"    {cl_dir}")
-                    with open(f"{rep_data_dir}/{cl_dir}/pseudolabels_1h.pkl", 'rb') as f:
+        if "multistep" in self.opts.replay_root:
+            with torch.no_grad():
+                for s in range(1, self.opts.step + 1):
+                    if s == 1:
+                        updated_replay_root = "/".join(self.opts.replay_root.split("/")[:-1]) + "/Base"
+                        rep_data_dir_step = f"{updated_replay_root}/{self.opts.task}{'-ov' if self.opts.overlap else ''}"
+                    else:
+                        rep_data_dir_step = rep_data_dir
+                    with open(f"{rep_data_dir_step}/{s - 1}/pseudolabels_1h.pkl", 'rb') as f:
                         onehots = pickle.load(f)
-                        for img_name in os.listdir(f"{rep_data_dir}/{cl_dir}/images"):
-                            img = Image.open(f"{rep_data_dir}/{cl_dir}/images/{img_name}").convert("RGB")
+                        for img_name in sorted(os.listdir(f"{rep_data_dir_step}/{s - 1}/images")):
+                            img = Image.open(f"{rep_data_dir_step}/{s - 1}/images/{img_name}").convert("RGB")
                             img = _transform(img).to("cuda", dtype=torch.float32).unsqueeze(0)
 
                             outputs_old, features_old = self.model_old(img, interpolate=False)
@@ -531,8 +535,46 @@ class Trainer:
                             for i, unq in enumerate(uniques):
                                 if counts[i] >= num_pixels * self.opts.inpainting_threshold:
                                     onehots[f"{img_name[:-4]}.png"][unq - 1] = 1
-                    with open(f"{rep_data_dir}/{cl_dir}/inpainted_pseudolabels_1h.pkl", 'wb') as f:
+                    with open(f"{rep_data_dir_step}/{s - 1}/inpainted_pseudolabels_1h.pkl", 'wb') as f:
                         pickle.dump(onehots, f)
+        else:
+            with torch.no_grad():
+                for cl_dir in os.listdir(rep_data_dir):
+                    if os.path.isdir(f"{rep_data_dir}/{cl_dir}"):
+                        print(f"    {cl_dir}")
+                        with open(f"{rep_data_dir}/{cl_dir}/pseudolabels_1h.pkl", 'rb') as f:
+                            onehots = pickle.load(f)
+                            for img_name in sorted(os.listdir(f"{rep_data_dir}/{cl_dir}/images")):
+                                img = Image.open(f"{rep_data_dir}/{cl_dir}/images/{img_name}").convert("RGB")
+                                img = _transform(img).to("cuda", dtype=torch.float32).unsqueeze(0)
+
+                                outputs_old, features_old = self.model_old(img, interpolate=False)
+                                outputs, features = model(img, interpolate=False)
+
+                                int_masks = self.pseudolabeler(features['body']).detach()
+                                int_masks_orig = int_masks.softmax(dim=1)
+                                pseudo_gt_seg_lx = binarize(int_masks_orig)
+                                pseudo_gt_seg_lx = (self.opts.alpha * pseudo_gt_seg_lx) + ((1-self.opts.alpha) * int_masks_orig)
+                                target_old = torch.sigmoid(outputs_old.detach())
+                                target = torch.cat((target_old, pseudo_gt_seg_lx[:, self.old_classes:]), dim=1)
+                                target[:, 0] = torch.min(target[:, 0], pseudo_gt_seg_lx[:, 0])
+
+                                inp_target_old = outputs_old.detach().argmax(dim=1)
+                                inp_target_new = outputs.detach().argmax(dim=1)
+                                inpainted_labels = torch.zeros_like(inp_target_old)
+                                inpainted_labels[inp_target_old > 0] = inp_target_old[inp_target_old > 0]
+                                new_spotted_mask = torch.zeros_like(inpainted_labels)
+                                new_spotted_mask[(inp_target_old == 0) & (inp_target_new >= self.old_classes) & (inp_target_new == target.argmax(dim=1))] = 1
+                                inpainted_labels[new_spotted_mask.to(bool)] = inp_target_new[new_spotted_mask.to(bool)]
+                                uniques, counts = torch.unique(inpainted_labels, return_counts=True)
+                                num_pixels = np.prod(inpainted_labels.shape)
+                                counts = counts[uniques >= self.old_classes]
+                                uniques = uniques[uniques >= self.old_classes]
+                                for i, unq in enumerate(uniques):
+                                    if counts[i] >= num_pixels * self.opts.inpainting_threshold:
+                                        onehots[f"{img_name[:-4]}.png"][unq - 1] = 1
+                        with open(f"{rep_data_dir}/{cl_dir}/inpainted_pseudolabels_1h.pkl", 'wb') as f:
+                            pickle.dump(onehots, f)
         model.train()
         self.pseudolabeler.train()
 

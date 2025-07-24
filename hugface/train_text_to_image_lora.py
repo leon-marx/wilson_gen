@@ -131,8 +131,7 @@ These are LoRA adaption weights for {base_model}. The weights were fine-tuned on
 
     model_card.save(os.path.join(repo_folder, "README.md"))
 
-# VOC ADDITIONS: SOME STUFF HARDCODED FOR NOW (ESP CLASSES, ALSO)
-classes = [
+all_classes = [
     "aeroplane",
     "bicycle",
     "bird",
@@ -143,21 +142,29 @@ classes = [
     "cat",
     "chair",
     "cow",
+    "dining_table",
+    "dog",
+    "horse",
+    "motorbike",
+    "person",
+    "potted_plant",
+    "sheep",
+    "sofa",
+    "train",
+    "tv_monitor",
 ]
 
-def get_cossims(images, args):
+def get_cossims(images, args, classes):
     n_val_imgs = args.num_validation_images
     cossims = {f"cossim_{cl}": 0 for cl in classes}
     cossim_stds = {f"std_{cl}": 0 for cl in classes}
     processor = AutoImageProcessor.from_pretrained("facebook/dinov2-base")
     model = AutoModel.from_pretrained("facebook/dinov2-base").to("cuda")
+    task_and_ov = args.dataset_name.split("_")[-1].split("/")[0]
     with torch.no_grad():
         for i, cl in enumerate(classes):
-            if "ov" in args.dataset_name:
-                voc_embeds = np.load(f"/home/thesis/marx/wilson_gen/hugface/dino_embeds/voc/10-10-ov/{cl}.npy")
-            else:
-                voc_embeds = np.load(f"/home/thesis/marx/wilson_gen/hugface/dino_embeds/voc/10-10/{cl}.npy")
-            inputs = processor(images=images[(n_val_imgs // 10) * i: (n_val_imgs // 10) * (i+1)], return_tensors="pt")
+            voc_embeds = np.load(f"/home/thesis/marx/wilson_gen/hugface/dino_embeds/voc/{task_and_ov}/{cl}.npy")
+            inputs = processor(images=images[(n_val_imgs // len(classes)) * i: (n_val_imgs // len(classes)) * (i+1)], return_tensors="pt")
             outputs = model(**inputs.to("cuda"))
             last_hidden_states = outputs.last_hidden_state
             gen_embeds = last_hidden_states.mean(dim=1).cpu().numpy()
@@ -165,7 +172,7 @@ def get_cossims(images, args):
             gen_embeds_normed = gen_embeds / np.linalg.norm(gen_embeds, axis=1)[:, np.newaxis]
             cossim_mat = np.matmul(voc_embeds_normed, gen_embeds_normed.T)
             cossims[f"cossim_{cl}"] = cossim_mat.mean()
-            cossim_stds[f"std_{cl}"] = cossim_mat.mean(axis=0).std() / np.sqrt(n_val_imgs // 10)
+            cossim_stds[f"std_{cl}"] = cossim_mat.mean(axis=0).std() / np.sqrt(n_val_imgs // len(classes))
             # cossims are regarded as random variables with mean and std per class, std is taken only over gen imgs, not voc size
     del model
     del processor
@@ -173,9 +180,9 @@ def get_cossims(images, args):
     cossims["cossim_std"] = np.sqrt(np.array(list(cossim_stds.values()))**2).mean()
     return cossims
 
-def get_prompt(prompt, i, n_val_imgs):
+def get_prompt(prompt, i, n_val_imgs, classes):
     if "photo of a" in prompt:
-        return " ".join(prompt.split(" ")[:-1] + [classes[i // (n_val_imgs // 10)]])
+        return f"photo of a {classes[i // (n_val_imgs // len(classes))].replace('_', ' ')}"
     else:
         return prompt
 
@@ -186,6 +193,7 @@ def log_validation(
     accelerator,
     epoch,
     global_step,
+    classes,
     stable_loss_args=None,
     is_final_validation=False,
 ):
@@ -208,13 +216,18 @@ def log_validation(
         if args.train_batch_size > 1:
             # CUSTOM BATCH SIZE
             im_gen_bs = 8
+            for i in range(8):  # make sure batch size fills num_validation_images without remainder
+                if (args.num_validation_images % im_gen_bs != 0):
+                    im_gen_bs -= 1
+                else:
+                    break
             for i in tqdm(range(0, args.num_validation_images, im_gen_bs), leave=False):
-                prompts = [get_prompt(args.validation_prompt, i + j, args.num_validation_images) for j in range(im_gen_bs)]
+                prompts = [get_prompt(args.validation_prompt, i + j, args.num_validation_images, classes) for j in range(im_gen_bs)]
                 images += pipeline(prompts, num_inference_steps=50, generator=generator).images
         else:
             # BATCH SIZE 1
             for i in tqdm(range(args.num_validation_images), leave=False):
-                images.append(pipeline(get_prompt(args.validation_prompt, i, args.num_validation_images), num_inference_steps=50, generator=generator).images[0])
+                images.append(pipeline(get_prompt(args.validation_prompt, i, args.num_validation_images, classes), num_inference_steps=50, generator=generator).images[0])
 
 
         # Compute validation loss
@@ -361,7 +374,7 @@ def log_validation(
 
             accelerator.log({"stable_train_loss": stable_trainval_loss}, step=global_step)
             accelerator.log({"stable_val_loss": stable_val_loss}, step=global_step)
-            cossims = get_cossims(images, args)
+            cossims = get_cossims(images, args, classes)
             accelerator.log(cossims, step=global_step)
             current_cossim_mean = cossims["cossim_mean"]
             # Back to training mode
@@ -382,6 +395,7 @@ def log_validation(
                     ]
                 }
             )
+            tracker.run.name = f"sd-lora-{args.dataset_name.replace('/', '_')}"
     if not is_final_validation:
         return images, current_cossim_mean
     else:
@@ -691,6 +705,17 @@ DATASET_NAME_MAPPING = {
 
 def main():
     args = parse_args()
+
+    task_step = int(args.dataset_name.split("/")[-1])
+    task_and_ov = args.dataset_name.split("_")[-1].split("/")[0]
+    task_base = int(task_and_ov.split("-")[0])
+    task_incr = int(task_and_ov.split("-")[1])
+    if task_step == 0:
+        classes = all_classes[:task_base]
+    else:
+        classes = all_classes[task_base+(task_step-1)*task_incr : task_base+task_step*task_incr]
+
+
     if args.report_to == "wandb" and args.hub_token is not None:
         raise ValueError(
             "You cannot use both --report_to=wandb and --hub_token due to a security risk of exposing your token."
@@ -707,6 +732,7 @@ def main():
         log_with=args.report_to,
         project_config=accelerator_project_config,
     )
+
 
     # Disable AMP for MPS.
     if torch.backends.mps.is_available():
@@ -1020,6 +1046,11 @@ def main():
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
     logger.info("***** Running training *****")
+    logger.info(f"dataset_name: {args.dataset_name}")
+    logger.info(f"output_dir: {args.output_dir}")
+    logger.info(f"Classes for task {task_and_ov} and step {task_step}:")
+    for cl in classes:
+        logger.info(f"    {cl}")
     logger.info(f"  Num train examples = {len(train_dataset)}")
     logger.info(f"  Num trainval examples = {len(trainval_dataset)}")
     logger.info(f"  Num val examples = {len(val_dataset)}")
@@ -1080,7 +1111,6 @@ def main():
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
         train_loss = 0.0
-        current_cossim_mean
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(unet):
                 # Convert images to latent space
@@ -1215,7 +1245,7 @@ def main():
                     variant=args.variant,
                     torch_dtype=weight_dtype,
                 )
-                images, current_cossim_mean = log_validation(pipeline, args, accelerator, epoch, global_step, stable_loss_args)
+                images, current_cossim_mean = log_validation(pipeline, args, accelerator, epoch, global_step, classes, stable_loss_args)
 
                 del pipeline
                 torch.cuda.empty_cache()
@@ -1244,8 +1274,9 @@ def main():
                                     removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
                                     shutil.rmtree(removing_checkpoint)
 
-                        save_path = os.path.join(args.output_dir, f"best-cossim-checkpoint")
+                        # save_path = os.path.join(args.output_dir, f"best-cossim-checkpoint")
                         # accelerator.save_state(save_path)
+                        save_path = args.output_dir
 
                         unwrapped_unet = unwrap_model(unet.to(torch.float32))
                         unet_lora_state_dict = convert_state_dict_to_diffusers(
@@ -1287,7 +1318,7 @@ def main():
             pipeline.load_lora_weights(args.output_dir)
 
             # run inference
-            images = log_validation(pipeline, args, accelerator, epoch, global_step, stable_loss_args, is_final_validation=True)
+            images = log_validation(pipeline, args, accelerator, epoch, global_step, classes, stable_loss_args, is_final_validation=True)
 
         if args.push_to_hub:
             save_model_card(

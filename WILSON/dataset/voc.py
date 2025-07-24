@@ -195,35 +195,77 @@ class VOCGenSegmentation(data.Dataset):
         old_classes = [classes[i] for i in range(1, max_old_class+1, 1)]
         self.num_voc = len(self.indices)
         self.replay_root = replay_root
+        if "Lora" in replay_root:
+            self.replay_root_base = "/".join(replay_root.split("/")[:-1]) + "/Lora_Base"
+        else:
+            self.replay_root_base = "/".join(replay_root.split("/")[:-1]) + "/Base_Base"
         self.replay_images = []
         self.replay_1h_lbls = []
-        with open(os.path.join(replay_root, f"{task}{ov_string}", "class_counts.pkl"), "rb") as f:
-                self.class_counts = pickle.load(f)
+        self.step = step
+        if "multistep" in self.replay_root:
+            self.class_counts = {}
+            with open(os.path.join(self.replay_root_base, f"{task}{ov_string}", "0", "class_counts.pkl"), "rb") as f:
+                    self.class_counts[0] = pickle.load(f)
+            for s in range(2, self.step + 1):
+                with open(os.path.join(replay_root, f"{task}{ov_string}", str(s - 1), "class_counts.pkl"), "rb") as f:
+                        self.class_counts[s - 1] = pickle.load(f)
+        else:
+            with open(os.path.join(replay_root, f"{task}{ov_string}", "class_counts.pkl"), "rb") as f:
+                    self.class_counts = pickle.load(f)
         self.old_classes = old_classes
         self.task = task
         self.ov_string = ov_string
-        self.img_names = {}
-        for old_class in old_classes:
-            if replay_size is not None:
-                # print(F"{replay_size * self.class_counts[old_class] = }")
-                # print("Original number of data:", len(sorted(os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images")))))
-                img_names = sorted(os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images")))[:replay_size * self.class_counts[old_class]]
-                # print("New number of data:", len(img_names))
-            else:
-                img_names = sorted(os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images")))
-            self.img_names[old_class] = img_names
-            self.replay_images += [(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images", img_name),
-                               os.path.join(replay_root, f"{task}{ov_string}", old_class, "pseudolabels", img_name[:-4] + ".png")) for img_name in img_names]
-            with open(os.path.join(replay_root, f"{task}{ov_string}", old_class, "pseudolabels_1h.pkl"), "rb") as f:
+        # multistep does currently not support replay_ratios other than 1 and replay_sizes other than all, this can probably be easily changed by slicing smartly here (skip every n-th)
+        if "multistep" in self.replay_root:
+            self.img_names = {}
+            step_img_names = sorted(os.listdir(os.path.join(self.replay_root_base, f"{task}{ov_string}", "0", "images")))
+            self.replay_images += [(os.path.join(self.replay_root_base, f"{task}{ov_string}", "0", "images", img_name),
+                            os.path.join(self.replay_root_base, f"{task}{ov_string}", "0", "pseudolabels", img_name[:-4] + ".png")) for img_name in step_img_names]
+            with open(os.path.join(self.replay_root_base, f"{task}{ov_string}", "0", "pseudolabels_1h.pkl"), "rb") as f:
                 pseudolabels_1h = pickle.load(f)
-            self.replay_1h_lbls += [pseudolabels_1h[img_name[:-4] + ".png"] for img_name in img_names]
+            self.replay_1h_lbls += [pseudolabels_1h[img_name[:-4] + ".png"] for img_name in step_img_names]
+            self.img_names[0] = step_img_names
+            for s in range(2, self.step + 1):
+                step_img_names = sorted(os.listdir(os.path.join(replay_root, f"{task}{ov_string}", str(s - 1), "images")))
+                self.replay_images += [(os.path.join(replay_root, f"{task}{ov_string}", str(s - 1), "images", img_name),
+                                os.path.join(replay_root, f"{task}{ov_string}", str(s - 1), "pseudolabels", img_name[:-4] + ".png")) for img_name in step_img_names]
+                with open(os.path.join(replay_root, f"{task}{ov_string}", str(s - 1), "pseudolabels_1h.pkl"), "rb") as f:
+                    pseudolabels_1h = pickle.load(f)
+                self.replay_1h_lbls += [pseudolabels_1h[img_name[:-4] + ".png"] for img_name in step_img_names]
+                self.img_names[s - 1] = step_img_names
+
+        else:
+            self.img_names = {}
+            for old_class in old_classes:
+                if replay_size is not None:
+                    # print(F"{replay_size * self.class_counts[old_class] = }")
+                    # print("Original number of data:", len(sorted(os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images")))))
+                    img_names = sorted(os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images")))[:replay_size * self.class_counts[old_class]]
+                    # print("New number of data:", len(img_names))
+                else:
+                    img_names = sorted(os.listdir(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images")))
+                self.img_names[old_class] = img_names
+                self.replay_images += [(os.path.join(replay_root, f"{task}{ov_string}", old_class, "images", img_name),
+                                os.path.join(replay_root, f"{task}{ov_string}", old_class, "pseudolabels", img_name[:-4] + ".png")) for img_name in img_names]
+                with open(os.path.join(replay_root, f"{task}{ov_string}", old_class, "pseudolabels_1h.pkl"), "rb") as f:
+                    pseudolabels_1h = pickle.load(f)
+                self.replay_1h_lbls += [pseudolabels_1h[img_name[:-4] + ".png"] for img_name in img_names]
 
     def update_pseudolabels(self):
         self.replay_1h_lbls = []
-        for old_class in self.old_classes:
-            with open(os.path.join(self.replay_root, f"{self.task}{self.ov_string}", old_class, f"inpainted_pseudolabels_1h.pkl"), "rb") as f:
+        if "multistep" in self.replay_root:
+            with open(os.path.join(self.replay_root_base, f"{self.task}{self.ov_string}", "0", f"inpainted_pseudolabels_1h.pkl"), "rb") as f:
                 pseudolabels_1h = pickle.load(f)
-            self.replay_1h_lbls += [pseudolabels_1h[img_name[:-4] + ".png"] for img_name in self.img_names[old_class]]
+            self.replay_1h_lbls += [pseudolabels_1h[img_name[:-4] + ".png"] for img_name in self.img_names[0]]
+            for s in range(2, self.step + 1):
+                with open(os.path.join(self.replay_root, f"{self.task}{self.ov_string}", str(s - 1), f"inpainted_pseudolabels_1h.pkl"), "rb") as f:
+                    pseudolabels_1h = pickle.load(f)
+                self.replay_1h_lbls += [pseudolabels_1h[img_name[:-4] + ".png"] for img_name in self.img_names[s - 1]]
+        else:
+            for old_class in self.old_classes:
+                with open(os.path.join(self.replay_root, f"{self.task}{self.ov_string}", old_class, f"inpainted_pseudolabels_1h.pkl"), "rb") as f:
+                    pseudolabels_1h = pickle.load(f)
+                self.replay_1h_lbls += [pseudolabels_1h[img_name[:-4] + ".png"] for img_name in self.img_names[old_class]]
 
     def __getitem__(self, index):
         """

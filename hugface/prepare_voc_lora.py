@@ -67,6 +67,12 @@ def get_cossim(voc_embeddings, gen_embeddings):
 
 
 if __name__ == "__main__":
+    print("WARNING: This script is deprecated and works only for 1-step incremental tasks like 10-10!")
+    print("For other tasks (or comparability of 1-step tasks), use prepare_voc_lora_multistep.py!")
+    cont = input("Are you sure you want to continue? (y/n): ")
+    if cont != "y":
+        print("Exiting...")
+        exit(0)
     os.chdir("/home/thesis/marx/wilson_gen/hugface")
     TASK = input("Enter task: ")
     OVERLAP = input("Overlap? (y/n): ") == "y"

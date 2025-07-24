@@ -1,0 +1,14 @@
+BELOW: 10-5 & 15-1 for ov & dj with lora AND od_inp [RAN ON 14.06.2025]
+./run_multistep.sh 10-5 overlap lora no_k_inp od_inp; ./run_multistep.sh 10-5 disjoint lora no_k_inp od_inp; ./run_multistep.sh 15-1 overlap lora no_k_inp od_inp; ./run_multistep.sh 15-1 disjoint lora no_k_inp od_inp
+
+BELOW: 10-10 & 10-1 & 15-5 for ov & dj with lora AND od_inp [RAN ON 23.06.2025]
+./run_multistep.sh 10-1 overlap lora no_k_inp od_inp; ./run_multistep.sh 10-1 disjoint lora no_k_inp od_inp; ./run_multistep.sh 15-5 overlap lora no_k_inp od_inp; ./run_multistep.sh 15-5 disjoint lora no_k_inp od_inp; ./run_multistep.sh 10-10 overlap lora no_k_inp od_inp; ./run_multistep.sh 10-10 disjoint lora no_k_inp od_inp
+
+BELOW: all tasks & ovs, with lora AND NO od_inp [RAN ON 01.07.2025]
+./run_multistep.sh 10-5 overlap lora no_k_inp no_od_inp; ./run_multistep.sh 10-5 disjoint lora no_k_inp no_od_inp; ./run_multistep.sh 15-1 overlap lora no_k_inp no_od_inp; ./run_multistep.sh 15-1 disjoint lora no_k_inp no_od_inp; ./run_multistep.sh 10-1 overlap lora no_k_inp no_od_inp; ./run_multistep.sh 10-1 disjoint lora no_k_inp no_od_inp; ./run_multistep.sh 15-5 overlap lora no_k_inp no_od_inp; ./run_multistep.sh 15-5 disjoint lora no_k_inp no_od_inp; ./run_multistep.sh 10-10 overlap lora no_k_inp no_od_inp; ./run_multistep.sh 10-10 disjoint lora no_k_inp no_od_inp
+
+BELOW: all tasks & ovs, with base AND od_inp [RAN ON 10.07.2025]
+./run_multistep.sh 10-5 overlap base no_k_inp od_inp; ./run_multistep.sh 10-5 disjoint base no_k_inp od_inp; ./run_multistep.sh 15-1 overlap base no_k_inp od_inp; ./run_multistep.sh 15-1 disjoint base no_k_inp od_inp; ./run_multistep.sh 10-1 overlap base no_k_inp od_inp; ./run_multistep.sh 10-1 disjoint base no_k_inp od_inp; ./run_multistep.sh 15-5 overlap base no_k_inp od_inp; ./run_multistep.sh 15-5 disjoint base no_k_inp od_inp; ./run_multistep.sh 10-10 overlap base no_k_inp od_inp; ./run_multistep.sh 10-10 disjoint base no_k_inp od_inp
+
+BELOW: all tasks & ovs, with base AND NO od_inp [RAN ON 19.07.2025]
+./run_multistep.sh 10-5 overlap base no_k_inp no_od_inp; ./run_multistep.sh 10-5 disjoint base no_k_inp no_od_inp; ./run_multistep.sh 15-1 overlap base no_k_inp no_od_inp; ./run_multistep.sh 15-1 disjoint base no_k_inp no_od_inp; ./run_multistep.sh 10-1 overlap base no_k_inp no_od_inp; ./run_multistep.sh 10-1 disjoint base no_k_inp no_od_inp; ./run_multistep.sh 15-5 overlap base no_k_inp no_od_inp; ./run_multistep.sh 15-5 disjoint base no_k_inp no_od_inp; ./run_multistep.sh 10-10 overlap base no_k_inp no_od_inp; ./run_multistep.sh 10-10 disjoint base no_k_inp no_od_inp
